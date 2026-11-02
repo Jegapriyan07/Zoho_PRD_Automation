@@ -1,0 +1,24 @@
+Acme Corp - Analytics Rollout: Requirement Document (Draft v1)
+Prepared by: Sarah Kim, VP Operations
+
+1. Sales Performance Dashboard
+   - Revenue and profit margin by product, product category, region, and customer segment.
+   - Reporting period: calendar year 2025.
+   - Profit margin = revenue minus standard product cost.
+
+2. Order Cancellation Visibility
+   - Ability to report on the reason each cancelled order was cancelled.
+
+3. Support SLA Tracking
+   - Ticket resolution time measured from creation to first Resolved/Closed status change.
+   - Flag tickets that breach SLA thresholds by priority.
+
+4. Invoice Aging
+   - Flag invoices more than 30 days past their due date as past due.
+   - Nice-to-have: breakdown of paid invoices by payment method.
+
+5. Product Catalog Health
+   - Nice-to-have: count of active vs. inactive products.
+
+Out of scope for this phase: any data outside the current CRM/ERP system, and any predictive/
+forecasting analytics.

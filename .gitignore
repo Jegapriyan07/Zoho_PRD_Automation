@@ -1,0 +1,17 @@
+.env
+!.env.example
+cases/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.xlsx
+*.docx
+execution_output.txt
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

@@ -1,0 +1,22 @@
+Meeting: Kickoff Call - Acme Analytics Rollout
+Date: 2026-08-10
+Attendees: Sarah Kim (Acme, VP Operations), Miguel Torres (Acme, Sales Director), JP (Integration Team)
+
+Sarah: Thanks for joining. We want a scope for a reporting rollout covering our sales, product,
+and support data. Top priority is a sales performance dashboard broken down by region, showing
+revenue and profit margin per product line, for the last 12 months.
+
+Miguel: Right, and it's important the dashboard lets us drill into why orders get cancelled.
+We've been losing visibility into cancellation reasons since our last CRM migration - we used to
+capture a cancellation reason code but I'm not sure it's still tracked anywhere.
+
+Sarah: Also we want to track support ticket resolution time against our SLA targets, and flag
+customers with slow-paying invoices - anything over 30 days past due.
+
+JP: Understood. Can you clarify "profit margin" - is that gross margin at the line-item level, or
+net of any other costs?
+
+Sarah: Line-item level is fine for now - revenue minus product cost.
+
+Miguel: One more thing - we'd like everything segmented by customer segment (SMB, Mid-Market,
+Enterprise) where possible.

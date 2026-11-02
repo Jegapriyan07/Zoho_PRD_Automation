@@ -1,0 +1,8 @@
+anthropic>=0.39.0
+requests>=2.31.0
+python-dotenv>=1.0.1
+pydantic>=2.7.0
+openpyxl>=3.1.5
+python-docx>=1.1.2
+reportlab>=4.2.0
+langchain-mcp-adapters>=0.2.1

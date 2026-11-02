@@ -1,0 +1,27 @@
+Meeting: Data Deep-Dive Session - Acme Analytics Rollout
+Date: 2026-08-14
+Attendees: Priya Shah (Acme, Data Lead), Miguel Torres (Acme, Sales Director), JP (Integration Team)
+
+Priya: Following up from kickoff - for the sales dashboard, let's confirm the time window is
+calendar year 2025, not a rolling 12 months. Finance reports on calendar year, so let's align to
+that instead.
+
+JP: Noted, I'll flag that as a difference from the kickoff call.
+
+Priya: On the cancellation reason question - I checked with our platform team and they confirmed
+we do NOT have a cancellation reason field anywhere in the current system. It was dropped during
+the CRM migration Miguel mentioned. If we need it, it would have to be a net-new data collection
+effort, not just a reporting gap.
+
+Miguel: Good to know. Let's still flag it as a requirement so we can decide whether to build the
+data collection piece later.
+
+Priya: For invoices, "past due" should be based on the invoice due date vs. today, not the invoice
+date. And for tickets, SLA breach should be measured from ticket creation to first status change
+to Resolved or Closed.
+
+JP: Got it. Anything on regions or product categories to add?
+
+Priya: We have five sales regions and four product categories (software licenses, hardware,
+professional services, support plans). We'd like the dashboard to support both region and category
+as filters.

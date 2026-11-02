@@ -1,0 +1,55 @@
+Screen-share evidence: manual work scope supplied by the client/team
+
+Report 1: Property-Level Custom P&L
+Columns:
+- Start Date
+- End Date
+- No. of Nights Considered
+- No. of Nights Booked
+- Occupancy %
+- ADR
+- Account Type
+- Account Name
+- Amount
+- Month
+- Cash Expenses
+- Total Expenses
+- Gross Profit / Gross Profit %
+- EBITDA / EBITDA %
+- Rent-to-Revenue Ratio
+- Net Cash Flow
+- ROI % / ROC %
+Filter:
+- Property (single-select)
+Report period:
+- Month / Period
+Purpose:
+- Replaces the existing manually maintained P&L layout.
+- Combines property-level income and expenses for a selected property and period.
+- Tracks operating metrics and profitability, with investor payouts and loan repayments separated from operating results.
+
+Report 2: Portfolio / All-Properties Comparison
+Columns:
+- Property Name
+- Revenue
+- Gross Profit / Gross Profit %
+- EBITDA / EBITDA %
+- Net Cash Flow
+Filters:
+- Month / Period
+- Property (multi-select, default: All Properties)
+Purpose:
+- Compares operating performance and profitability across any combination of properties for a selected period.
+- Helps identify over-performing and under-performing properties.
+
+Report 3: Current Assets Summary
+Columns:
+- Property Name
+- Security Deposit
+- Brokerage
+- Setup/Photoshoot Cost Total
+Filters:
+- Property
+- Period
+Purpose:
+- Provides visibility into upfront, non-operating costs separately from the P&L so they do not distort operating results.

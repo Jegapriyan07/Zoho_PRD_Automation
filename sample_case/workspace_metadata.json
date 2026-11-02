@@ -1,0 +1,69 @@
+{
+  "source": "Sample Zoho Books and Zoho Analytics metadata export",
+  "entities": [
+    {
+      "name": "Invoices",
+      "module": "Zoho Books",
+      "description": "Invoice metadata only; contains no transaction records.",
+      "fields": [
+        {"name": "Invoice Date", "data_type": "date"},
+        {"name": "Amount", "data_type": "currency"},
+        {"name": "Status", "data_type": "picklist"},
+        {"name": "Property", "data_type": "lookup"}
+      ],
+      "relationships": ["Invoices.Property -> Properties.Id"]
+    },
+    {
+      "name": "Bookings",
+      "module": "Zoho Analytics",
+      "description": "Booking-system synchronization table metadata.",
+      "fields": [
+        {"name": "Property", "data_type": "lookup"},
+        {"name": "Check In", "data_type": "date"},
+        {"name": "Check Out", "data_type": "date"},
+        {"name": "ADR", "data_type": "currency"}
+      ],
+      "relationships": ["Bookings.Property -> Properties.Id"]
+    },
+    {
+      "name": "Properties",
+      "module": "Zoho Books Custom Module",
+      "description": "Property master metadata.",
+      "fields": [
+        {"name": "Property Name", "data_type": "text"},
+        {"name": "Security Deposit", "data_type": "currency"},
+        {"name": "Brokerage", "data_type": "currency"},
+        {"name": "Setup Cost", "data_type": "currency"}
+      ],
+      "relationships": []
+    },
+    {
+      "name": "Cash Transactions",
+      "module": "Zoho Books Custom Module",
+      "description": "Mock cash income and expense entries requiring ledger and property mapping.",
+      "fields": [
+        {"name": "Transaction Date", "data_type": "date"},
+        {"name": "Property", "data_type": "lookup"},
+        {"name": "Account Name", "data_type": "text"},
+        {"name": "Account Type", "data_type": "picklist"},
+        {"name": "Amount", "data_type": "currency"}
+      ],
+      "relationships": ["Cash Transactions.Property -> Properties.Id"]
+    },
+    {
+      "name": "PMS Monthly Metrics",
+      "module": "PMS Excel Upload",
+      "description": "Mock monthly PMS export with calendar-month-prorated revenue and occupancy inputs.",
+      "fields": [
+        {"name": "Month", "data_type": "date"},
+        {"name": "Property", "data_type": "lookup"},
+        {"name": "Nights Considered", "data_type": "number"},
+        {"name": "Nights Booked", "data_type": "number"},
+        {"name": "Capacity Nights", "data_type": "number"},
+        {"name": "ADR", "data_type": "currency"},
+        {"name": "Prorated Revenue", "data_type": "currency"}
+      ],
+      "relationships": ["PMS Monthly Metrics.Property -> Properties.Id"]
+    }
+  ]
+}

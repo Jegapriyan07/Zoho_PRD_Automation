@@ -1,0 +1,20 @@
+Meeting: Follow-up & Requirements Confirmation - Acme Analytics Rollout
+Date: 2026-08-19
+Attendees: Sarah Kim (Acme, VP Operations), Priya Shah (Acme, Data Lead), JP (Integration Team)
+
+Sarah: Quick follow-up before you start scoping. To confirm: sales dashboard covers calendar year
+2025, by region, product category, and customer segment - revenue and profit margin per product.
+
+JP: Confirmed, and I want to double check profit margin - can you confirm the cost basis you want?
+Some finance teams use standard cost, others use landed cost including shipping.
+
+Sarah: Standard product cost is fine for this phase - not landed cost.
+
+Priya: Also, small addition - we'd like to see payment method breakdown for paid invoices, if
+that's tracked. Not a blocker if it's not available, just a nice-to-have.
+
+Sarah: And one more ask - active vs. inactive product counts, since we've been retiring some old
+SKUs. Not urgent, but include it if it's a quick win.
+
+JP: Understood - I'll capture all of this and come back with a scope document showing what's
+confirmed available versus what needs more digging or a follow-up conversation.
