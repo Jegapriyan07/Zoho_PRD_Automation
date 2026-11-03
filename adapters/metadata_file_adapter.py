@@ -1,7 +1,6 @@
-"""Metadata-only adapter for an exported Zoho customer-workspace catalog.
+"""Metadata-only adapter for exported Zoho customer-workspace catalogs.
 
-The live Zoho MCP/API bridge should export the authenticated workspace metadata
-to this format. This adapter deliberately has no method to query business data.
+This adapter deliberately has no method to query business data.
 """
 import json
 from pathlib import Path
@@ -17,11 +16,40 @@ class MetadataFileAdapter:
 
     def get_metadata(self) -> WorkspaceMetadata:
         payload = self.get_catalog()
+        if "metadata" in payload:
+            return self._normalized_metadata(payload["metadata"])
         if "entities" in payload:
             return WorkspaceMetadata.model_validate(payload)
         return WorkspaceMetadata(
             source=payload.get("source", "Zoho Analytics metadata export"),
             entities=self._entities_from_catalog(payload),
+        )
+
+    @staticmethod
+    def _normalized_metadata(payload: dict) -> WorkspaceMetadata:
+        entities = []
+        for workspace in payload.get("workspaces", []):
+            for table in workspace.get("tables", []):
+                fields = [
+                    {
+                        "name": column.get("columnName") or column.get("name") or "unknown",
+                        "data_type": column.get("dataType") or column.get("data_type"),
+                        "description": column.get("description"),
+                    }
+                    for column in table.get("columns", [])
+                    if isinstance(column, dict)
+                ]
+                name = table.get("table_name") or table.get("tableName")
+                if name:
+                    entities.append({
+                        "name": name,
+                        "module": workspace.get("workspace_name") or "Zoho Analytics",
+                        "fields": fields,
+                        "relationships": [],
+                    })
+        return WorkspaceMetadata(
+            source="Zoho Analytics metadata export",
+            entities=entities,
         )
 
     def get_catalog(self) -> dict:

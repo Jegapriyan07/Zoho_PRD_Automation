@@ -19,7 +19,7 @@ class CaseContext(BaseModel):
     requirement_doc: Optional[TranscriptDoc] = None
 
 
-class ClarificationQuestion(BaseModel):
+class TranscriptClarificationQuestion(BaseModel):
     question_id: str
     question: str
     ambiguity: str
@@ -68,7 +68,7 @@ class TranscriptAnalysis(BaseModel):
     confirmed_signals: list[str] = Field(default_factory=list)
     assumptions_to_validate: list[str] = Field(default_factory=list)
     ambiguity_risks: list[str] = Field(default_factory=list)
-    clarification_questions: list[ClarificationQuestion] = Field(default_factory=list)
+    clarification_questions: list[TranscriptClarificationQuestion] = Field(default_factory=list)
     readiness: Literal["ready_for_reconciliation", "needs_clarification"]
     evidence_items: list[EvidenceItem] = Field(default_factory=list)
     business_objectives: list[str] = Field(default_factory=list)
@@ -200,7 +200,7 @@ class HumanValidationResult(BaseModel):
     records: list[HumanValidationRecord]
 
 
-class ClarificationQuestion(BaseModel):
+class GapClarificationQuestion(BaseModel):
     topic: str
     question: str
     related_requirement_ids: list[str] = Field(default_factory=list)
@@ -209,7 +209,7 @@ class ClarificationQuestion(BaseModel):
 class GapAnalysis(BaseModel):
     missing_data: list[str] = Field(default_factory=list)
     conflicting_definitions: list[str] = Field(default_factory=list)
-    clarification_questions: list[ClarificationQuestion] = Field(default_factory=list)
+    clarification_questions: list[GapClarificationQuestion] = Field(default_factory=list)
     overall_readiness: Literal["READY", "PARTIALLY READY", "BLOCKED"]
 
 

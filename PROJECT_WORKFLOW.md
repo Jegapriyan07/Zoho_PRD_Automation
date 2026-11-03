@@ -275,6 +275,12 @@ used alongside `sample_case\workspace_metadata.json` by
 py main.py run --from-stage 7 --case-id <case_id> --workspace "Customer Analytics"
 ```
 
+When `ANALYTICS_ORG_ID` and either `ANALYTICS_REFRESH_TOKEN` or
+`ANALYTICS_ACCESS_TOKEN` are configured in `.env`, stage 7 automatically uses
+the read-only Zoho REST metadata exporter and stores
+`zoho_metadata.json` in the case folder. Use `--metadata-source mcp` to retain
+the MCP route explicitly, or `--metadata <path>` to use an existing export.
+
 ### Check the RAG service
 
 ```powershell

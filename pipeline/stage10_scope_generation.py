@@ -75,11 +75,29 @@ def _clarification_answers(store: CaseStore) -> str:
             "Complete every answer in the 'Gaps & Clarifications' worksheet before generating "
             "the PRD: " + "; ".join(unanswered_questions)
         )
-    return "\n".join(
+    answers = [
         f"- ({row[0] or 'general'}) Question: {row[1]} | Answer: {row[2]}"
         for row in sheet.iter_rows(min_row=2, values_only=True)
         if row[1]
-    )
+    ]
+    questions = workbook["Questions"] if "Questions" in workbook.sheetnames else None
+    if questions:
+        unanswered_questions = [
+            f"{row[0]}: {row[1]}"
+            for row in questions.iter_rows(min_row=2, values_only=True)
+            if row[1] and not row[3]
+        ]
+        if unanswered_questions:
+            raise ValueError(
+                "Complete every answer in the 'Questions' worksheet before generating "
+                "the PRD: " + "; ".join(unanswered_questions)
+            )
+        answers.extend(
+            f"- ({row[0]}) Question: {row[1]} | Answer: {row[3]}"
+            for row in questions.iter_rows(min_row=2, values_only=True)
+            if row[1]
+        )
+    return "\n".join(answers)
 
 
 def run(

@@ -13,6 +13,7 @@ from pipeline.models import (
     RequirementDecomposition,
     RulebookRetrievalResult,
     SQLDiscovery,
+    TranscriptAnalysis,
 )
 
 STATUS_OPTIONS = "Available,Missing,Soiled Data,Partially Available,Unclear"
@@ -41,6 +42,7 @@ def run(
     data_needs: DataNeedSpecification,
     discovery: SQLDiscovery,
     retrieval: RulebookRetrievalResult,
+    transcript_analysis: TranscriptAnalysis | None = None,
 ) -> Path:
     needs_by_id = {need.requirement_id: need for need in data_needs.needs}
     queries_by_id = {}
@@ -129,6 +131,21 @@ def run(
         for cell in gaps[row]:
             cell.alignment = cell.alignment.copy(wrap_text=True, vertical="top")
 
+    questions = workbook.create_sheet("Questions")
+    questions.append(["Question ID", "Question", "Priority", "Answer"])
+    _style_sheet(questions)
+    if transcript_analysis:
+        for item in transcript_analysis.clarification_questions:
+            questions.append([item.question_id, item.question, item.priority, item.answer or ""])
+    questions.column_dimensions["A"].width = 18
+    questions.column_dimensions["B"].width = 100
+    questions.column_dimensions["C"].width = 18
+    questions.column_dimensions["D"].width = 70
+    for row in range(2, questions.max_row + 1):
+        questions.row_dimensions[row].height = 55
+        for cell in questions[row]:
+            cell.alignment = cell.alignment.copy(wrap_text=True, vertical="top")
+
     instructions = workbook.create_sheet("Instructions")
     instructions.append(["Human Validation Workflow"])
     instructions.append(["1. Review each metadata path against the customer workspace."])
@@ -136,6 +153,7 @@ def run(
     instructions.append(["3. Select Human Status. The agent never verifies source data itself."])
     instructions.append(["4. Record data-quality issues as Soiled Data and explain them in Human Notes."])
     instructions.append(["5. Answer every applicable item on Gaps & Clarifications before generating the PRD."])
+    instructions.append(["6. Answer every item on Questions before generating the PRD."])
     instructions.column_dimensions["A"].width = 110
     instructions["A1"].font = Font(bold=True, size=14)
 

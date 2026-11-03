@@ -52,6 +52,63 @@ Important settings include:
 - `ANALYTICS_MCP_URL`: Zoho Analytics MCP SSE endpoint, when applicable.
 - Zoho Analytics OAuth settings in `.env.example`.
 
+### Connect to Zoho Analytics metadata
+
+Create the private local configuration file, then open it in an editor and
+replace the four Zoho placeholders with your own values:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+For OAuth refresh-token access, set `ANALYTICS_CLIENT_ID`,
+`ANALYTICS_CLIENT_SECRET`, `ANALYTICS_REFRESH_TOKEN`, and
+`ANALYTICS_ORG_ID`. The client secret and refresh token stay in `.env`, which
+is ignored by Git. The exporter only reads metadata and never queries
+customer data rows.
+
+Workspace IDs are not stored in `.env`, because each client case can use a
+different workspace. Pass the client workspace ID with that case's command.
+REST discovery passes only that workspace's tables and columns to the existing
+metadata mapping stage.
+
+The OAuth consent request must include the `ZohoAnalytics.metadata.read`
+scope. After creating the consent URL in the Zoho API Console and receiving
+the authorization code, exchange it once without exposing it in chat:
+
+```powershell
+py scripts\setup_zoho_oauth.py
+```
+
+The script reads the client ID and secret from `.env`, prompts for the code,
+and updates only `ANALYTICS_REFRESH_TOKEN`.
+
+To discover the organizations available to the configured OAuth user:
+
+```powershell
+py scripts\get_zoho_org.py
+```
+
+This prints organization names and IDs only; it never prints the access token,
+refresh token, client secret, or client ID. Set the selected ID as
+`ANALYTICS_ORG_ID` in `.env` before running metadata discovery.
+
+Export the complete read-only catalog:
+
+```powershell
+py main.py export-metadata --workspace-id "51251900000005002" --output cases\zoho_metadata.json
+```
+
+You can override the organization ID for a one-off export:
+
+```powershell
+py main.py export-metadata --org-id "<organization-id>" --output cases\zoho_metadata.json
+```
+
+The export may contain an `errors` list when your OAuth user lacks access to a
+specific metadata endpoint; inspect that list before using the catalog.
+
 ## Usage
 
 Run the complete pipeline with live services:
@@ -62,6 +119,9 @@ py main.py run `
   --requirement requirement.txt `
   --workspace "Customer Analytics"
 ```
+
+For REST stage-7 mapping, pass `--workspace-id` for the client associated with
+that case.
 
 Run locally without the Claude API:
 

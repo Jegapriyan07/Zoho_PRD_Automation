@@ -5,10 +5,11 @@ Usage:
   python main.py run --from-stage 6 --case-id <case_id>
 """
 import argparse
+import os
 import sys
 
-from adapters.live_analytics_mcp_adapter import LiveAnalyticsMCPAdapter
 from adapters.metadata_file_adapter import MetadataFileAdapter
+from adapters.zoho_metadata_exporter import ZohoMetadataExporter
 from pipeline import (
     stage1_intake,
     stage2_parsing,
@@ -26,7 +27,6 @@ from pipeline import (
 from pipeline.case_store import CaseStore
 from pipeline.claude_client import ClaudeClient
 from pipeline.mock_claude_client import MockClaudeClient
-from pipeline.rag_mcp_client import RAGMCPClient
 from pipeline.unattended import (
     OfflineRulebookClient,
     answer_transcript_questions,
@@ -132,6 +132,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     if from_stage <= 6 <= to_stage:
         _announce(6)
+        from pipeline.rag_mcp_client import RAGMCPClient
+
         rag = (
             OfflineRulebookClient()
             if args.unattended and args.mock and not args.rag_url
@@ -142,13 +144,38 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     if from_stage <= 7 <= to_stage:
         _announce(7)
-        if args.metadata:
+        if args.skip_metadata:
+            print("[Metadata skipped] Validation queries will be answered from the customer validation workbook.")
+            schema = {}
+        elif args.metadata:
             schema = MetadataFileAdapter(args.metadata).as_schema()
+        elif args.metadata_source in ("auto", "rest") and (
+            args.metadata_source == "rest"
+            or (
+                os.getenv("ANALYTICS_ORG_ID")
+                and (
+                    os.getenv("ANALYTICS_REFRESH_TOKEN")
+                    or os.getenv("ANALYTICS_ACCESS_TOKEN")
+                )
+            )
+        ):
+            if not args.workspace_id:
+                sys.exit(
+                    "--workspace-id is required for REST metadata discovery. "
+                    "Provide the client workspace ID for this case."
+                )
+            metadata_path = store.case_dir / "zoho_metadata.json"
+            exporter = ZohoMetadataExporter(workspace_id=args.workspace_id)
+            exporter.export(str(metadata_path))
+            schema = MetadataFileAdapter(str(metadata_path)).as_schema()
+            print(f"Zoho REST metadata exported to: {metadata_path}")
         elif args.unattended and args.mock and not args.workspace:
             schema = automated_schema(data_needs)
         else:
             if not args.workspace:
                 sys.exit("--workspace is required for stage 7 so metadata can be discovered through Zoho Analytics MCP.")
+            from adapters.live_analytics_mcp_adapter import LiveAnalyticsMCPAdapter
+
             metadata = LiveAnalyticsMCPAdapter(args.workspace, store, args.analytics_mcp_url)
             schema = metadata.as_schema()
         sql_discovery = stage6_sql_discovery.run(store, claude(), data_needs, schema)
@@ -156,7 +183,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if from_stage <= 8 <= to_stage:
         _announce(8)
         workbook_path = stage7_validation_workbook.run(
-            store, decomposition, data_needs, sql_discovery, retrieval
+            store, decomposition, data_needs, sql_discovery, retrieval, transcript_analysis
         )
         if args.unattended:
             fill_validation_workbook(store)
@@ -182,12 +209,11 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if from_stage <= 11 <= to_stage:
         _announce(11)
         stage10_scope_generation.run(store, claude(), baseline, decomposition, data_needs, validation, gap_analysis)
-        if args.unattended:
-            final_prd = store.case_dir / "final_prd.md"
-            final_prd.write_text(
-                (store.case_dir / "prd_draft.md").read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
+        final_prd = store.case_dir / "final_prd.md"
+        final_prd.write_text(
+            (store.case_dir / "prd_draft.md").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
 
     if from_stage <= 12 <= to_stage:
         _announce(12)
@@ -220,6 +246,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--metadata",
         help="Optional exported Zoho Analytics metadata JSON; avoids live workspace discovery",
     )
+    run_p.add_argument(
+        "--metadata-source",
+        choices=("auto", "rest", "mcp"),
+        default="auto",
+        help="Metadata source: auto uses REST when Zoho OAuth env vars are configured; otherwise MCP",
+    )
+    run_p.add_argument(
+        "--workspace-id",
+        help="Client Zoho Analytics workspace ID for this case (required for REST metadata)",
+    )
     run_p.add_argument("--analytics-mcp-url", help="Zoho Analytics MCP SSE endpoint (defaults to ANALYTICS_MCP_URL)")
     run_p.add_argument("--case-id", help="Existing case id (required when --from-stage > 1)")
     run_p.add_argument("--from-stage", type=int, default=1, help="Stage number to start from (1-12)")
@@ -233,10 +269,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--unattended", action="store_true",
         help="Complete clarification, validation, and acceptance automatically using explicit assumptions",
     )
+    run_p.add_argument(
+        "--skip-metadata", action="store_true",
+        help="Skip Zoho workspace metadata discovery and use the customer validation workbook instead",
+    )
 
     export_p = sub.add_parser("export-metadata", help="Export the complete read-only Zoho Analytics metadata catalog")
-    export_p.add_argument("--org-id", required=True, help="Zoho Analytics organization id")
+    export_p.add_argument(
+        "--org-id",
+        help="Zoho Analytics organization id; defaults to ANALYTICS_ORG_ID in .env",
+    )
     export_p.add_argument("--output", required=True, help="Output JSON path")
+    export_p.add_argument(
+        "--workspace-id",
+        help="Workspace ID to export; required for client-isolated exports",
+    )
     export_p.add_argument("--access-token", help="Existing OAuth access token; otherwise refresh-token env vars are used")
     export_p.add_argument(
         "--analytics-url",
@@ -263,11 +310,14 @@ def main() -> None:
         output = ZohoMetadataExporter(
             org_id=args.org_id,
             access_token=args.access_token,
+            workspace_id=args.workspace_id,
             analytics_url=args.analytics_url,
             accounts_url=args.accounts_url,
         ).export(args.output)
         print(f"Metadata exported to: {output}")
     elif args.command == "knowledge-status":
+        from pipeline.rag_mcp_client import RAGMCPClient
+
         print(RAGMCPClient(args.rag_url).status_sync())
 
 
