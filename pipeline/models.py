@@ -130,8 +130,12 @@ class RequirementBaseline(BaseModel):
 
 class AtomicRequirement(BaseModel):
     requirement_id: str
+    title: Optional[str] = None
+    business_objective: Optional[str] = None
+    business_problem: Optional[str] = None
     category: Literal["metric", "dimension", "filter", "time_logic", "business_rule"]
     description: str
+    expected_analytical_outcome: Optional[str] = None
     source_reference: Optional[str] = None
     evidence: list[str] = Field(default_factory=list)
     source_systems: list[str] = Field(default_factory=list)
@@ -142,6 +146,11 @@ class AtomicRequirement(BaseModel):
     evidence_status: Literal[
         "CONFIRMED", "SUPPORTED", "INFERRED", "UNVERIFIED", "CONFLICTED"
     ] = "UNVERIFIED"
+    requirement_status: Literal[
+        "confirmed", "supported", "proposed", "assumption", "unresolved", "conflicted"
+    ] = "unresolved"
+    missing_information: list[str] = Field(default_factory=list)
+    clarification_questions: list[str] = Field(default_factory=list)
 
 
 class RequirementDecomposition(BaseModel):

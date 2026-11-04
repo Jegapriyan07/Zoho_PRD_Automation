@@ -10,6 +10,7 @@ from pipeline.models import (
     GapAnalysis,
 )
 from pipeline.stage6_sql_discovery import run as discover_sql
+from pipeline.stage3_transcript_analysis import _chunk_transcript
 
 
 class AnalyticalContractTests(unittest.TestCase):
@@ -42,6 +43,17 @@ class AnalyticalContractTests(unittest.TestCase):
             self.assertEqual(discovery.queries[0].sql, "")
             self.assertEqual(discovery.queries[0].metadata_paths, [])
             self.assertIn("not available", discovery.queries[0].mapping_rationale.lower())
+
+    def test_large_transcript_is_split_at_readable_boundaries(self):
+        chunks = _chunk_transcript(
+            "meeting.txt",
+            "First discussion.\n\n" + ("Shared business context. " * 120) + "\n\nFinal decision.",
+            1000,
+        )
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual(chunks[0][0], "meeting.txt#chunk-001")
+        self.assertTrue(all(text.strip() for _, text in chunks))
+        self.assertIn("Final decision.", chunks[-1][1])
 
 
 if __name__ == "__main__":

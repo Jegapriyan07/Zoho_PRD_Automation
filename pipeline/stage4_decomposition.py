@@ -19,6 +19,12 @@ client-owned requirement units for a data/analytics scoping engagement and clien
 Rules:
 - Do not copy baseline sentences mechanically. Synthesize the full context into coherent requirement \
 units that describe the client's intended outcome.
+- Every final requirement must represent one distinct business outcome, not an individual meeting
+  statement. Combine semantically duplicated or fragmented discussions across meetings, and retain
+  all supporting evidence references in the consolidated unit.
+- Give each requirement a meaningful business title, objective, problem, expected analytical outcome,
+  status, missing information, and clarification questions. Keep suggestions, assumptions, and
+  unresolved discussions visibly distinct from confirmed scope.
 - Prefer one requirement per meaningful business outcome or report/workflow, usually around 3-8 \
 requirements for a normal discovery call. Do not create one row per transcript sentence or one row \
 per metric.

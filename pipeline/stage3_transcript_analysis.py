@@ -101,6 +101,13 @@ def _format_sources(context: CaseContext) -> str:
 
 def _render_report(analysis: TranscriptAnalysis) -> str:
     lines = ["# Transcript Analysis and Clarification Brief", "", f"**Readiness:** `{analysis.readiness}`", "", "## Executive Summary", analysis.executive_summary]
+    if analysis.chunk_analyses:
+        lines.extend([
+            "",
+            "## Hierarchical Evidence Coverage",
+            f"- Consolidated {len(analysis.chunk_analyses)} bounded transcript evidence chunk(s).",
+            "- Chunk candidates are evidence only; the globally consolidated analysis is the handoff.",
+        ])
     for title, items in (
         ("Confirmed Signals", analysis.confirmed_signals),
         ("Assumptions to Validate", analysis.assumptions_to_validate),
