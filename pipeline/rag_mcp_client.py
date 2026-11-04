@@ -37,7 +37,7 @@ def _tool_text(value: Any) -> str:
 
 class RAGMCPClient:
     def __init__(self, url: str | None = None):
-        self.url = url or os.getenv("RAG_MCP_URL", "http://localhost:8080/sse")
+        self.url = url or os.getenv("RAG_MCP_URL", "http://localhost:8100/sse")
         self.top_k = int(os.getenv("RAG_TOP_K", "5"))
         self.min_score = float(os.getenv("RAG_MIN_SCORE", "0.35"))
         self.max_context_chars = int(os.getenv("RAG_MAX_CONTEXT_CHARS", "12000"))
@@ -65,9 +65,13 @@ class RAGMCPClient:
     @staticmethod
     def _queries(requirement: AtomicRequirement) -> list[str]:
         description = requirement.description.strip()
+        finance_context = (
+            "Zoho Finance profit and loss report metric formulas revenue expenses "
+            "gross profit EBITDA cash flow occupancy current assets and required fields"
+        )
         return [
             description,
-            f"Zoho Finance metric definition formula variables and required fields for {description}",
+            f"{finance_context} for {description}",
             f"report setup table columns filters and limitations for {description}",
         ]
 

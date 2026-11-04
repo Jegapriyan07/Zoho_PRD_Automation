@@ -19,8 +19,10 @@ The system reads metadata and generates validation queries. It does not query or
 For a no-interception run, pass `--unattended`. The pipeline fills stage-3
 questions, populates the validation workbook with explicit metadata-only
 assumptions, answers generated gap questions, and automatically accepts the
-generated draft. This mode produces the questions analyser, validation
-workbook, and final PRD; it does not represent customer verification.
+generated draft. The PRD generator converts unsupported details into explicit
+open decisions or feasibility gates and rejects editable placeholders. This
+mode produces the questions analyser, validation workbook, and final PRD; it
+does not represent customer row-level verification.
 
 ## Analysis Contract
 
@@ -116,6 +118,14 @@ PDF and DOCX extraction are not implemented in the current local prototype.
 `stage3_transcript_analysis.py` reviews the complete transcript evidence as a business-value analyst for Zoho Analytics. It separates confirmed stakeholder signals from analyst suggestions, surfaces assumptions and ambiguity risks, and produces specific questions with business impact and priority. The result is saved as both structured JSON and `transcript_analysis_report.md`.
 
 This stage does not expose private chain-of-thought or make decisions on behalf of stakeholders. It creates a shared decision brief so humans can resolve source-of-truth, metric, time, scope, data-quality, and acceptance questions before reconciliation and implementation planning.
+
+When the combined transcript size exceeds `TRANSCRIPT_ANALYSIS_CHUNK_CHARS`
+(default `18000`), the stage first extracts bounded `TranscriptChunkAnalysis`
+evidence and then consolidates all chunks globally. Chunk-level candidates are
+never treated as final requirements. The global pass deduplicates semantic
+repetition, connects fragmented discussions, preserves chronological changes and
+contradictions, and checks that each final requirement represents a distinct
+business outcome.
 
 ### Stage 4: Reconcile requirements
 

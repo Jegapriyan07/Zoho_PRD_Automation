@@ -133,11 +133,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         _announce(6)
         from pipeline.rag_mcp_client import RAGMCPClient
 
-        rag = (
-            OfflineRulebookClient()
-            if args.unattended and args.mock and not args.rag_url
-            else RAGMCPClient(args.rag_url)
-        )
+        rag = OfflineRulebookClient() if args.offline_rag else RAGMCPClient(args.rag_url)
         data_needs = stage5_data_needs.run(store, claude(), decomposition, context, rag)
         retrieval = store.load_stage(65, RulebookRetrievalResult)
 
@@ -281,6 +277,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--skip-metadata", action="store_true",
         help="Skip Zoho workspace metadata discovery and use the customer validation workbook instead",
+    )
+    run_p.add_argument(
+        "--offline-rag", action="store_true",
+        help="Explicitly skip RAG MCP retrieval and mark rulebook grounding unavailable",
     )
 
     export_p = sub.add_parser("export-metadata", help="Export the complete read-only Zoho Analytics metadata catalog")

@@ -20,6 +20,12 @@ The pipeline combines transcript analysis, requirement reconciliation, Zoho Fina
 11. Generates a PRD in Markdown and Word formats from the assessment and validated inputs.
 12. Records the final acceptance decision and feedback.
 
+Stage 3 uses a hierarchical analysis automatically when the combined transcript
+size exceeds `TRANSCRIPT_ANALYSIS_CHUNK_CHARS` (default `18000`). It extracts
+bounded evidence from transcript chunks, then performs one global consolidation
+pass. Chunk candidates are never used as the final requirement list; the
+consolidated analysis is passed to reconciliation.
+
 See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for the complete stage-by-stage workflow and handoffs.
 
 ## Requirements
@@ -145,8 +151,14 @@ py main.py run --transcripts transcript.txt --mock --unattended
 ```
 
 In unattended mock mode, missing live RAG and Analytics services are replaced
-with explicit synthetic/assumption-based outputs. Those assumptions are marked
-in the generated artifacts and are not customer-data validation.
+with explicit feasibility assumptions. The generated PRD never contains
+editable placeholders: unsupported details are recorded as open decisions or
+feasibility gates. Those assumptions are not customer-data validation.
+
+The pipeline uses the RAG MCP knowledge base by default, including in mock
+reasoning mode. Use `--rag-url` or `RAG_MCP_URL` to select the service. The
+offline rulebook fallback is never selected implicitly; use `--offline-rag`
+only for an explicitly ungrounded plumbing run.
 
 Resume an existing case from a later stage:
 

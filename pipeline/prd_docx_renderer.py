@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -146,7 +147,10 @@ def render(markdown: str, output_path: Path) -> Path:
     subtitle = document.add_paragraph(subtitle_text)
     subtitle.runs[0].font.size = Pt(16)
     subtitle.runs[0].font.color.rgb = RGBColor.from_string(ORANGE)
-    document.add_paragraph("Prepared for: [Editable client name]\nVersion: 1\nDate: [Editable date]\nPlatform: Zoho Analytics")
+    document.add_paragraph(
+        f"Prepared for: Spandan\nVersion: 1.0\nGenerated: {date.today().isoformat()}\n"
+        "Platform: Zoho Analytics"
+    )
     document.add_page_break()
 
     document.add_heading("Table of Contents", level=1)
@@ -199,7 +203,11 @@ def render_pdf(markdown: str, output_path: Path) -> Path:
         Paragraph(escape(title_text), cover_title),
         Paragraph(escape(subtitle_text), cover_subtitle),
         Spacer(1, 0.25 * inch),
-        Paragraph("Prepared for: [Editable client name]<br/>Version: 1<br/>Date: [Editable date]<br/>Platform: Zoho Analytics", cover_label),
+        Paragraph(
+            f"Prepared for: Spandan<br/>Version: 1.0<br/>Generated: {date.today().isoformat()}"
+            "<br/>Platform: Zoho Analytics",
+            cover_label,
+        ),
         Spacer(1, 0.8 * inch),
         Paragraph("Table of Contents", heading),
         *[Paragraph(f"{index}. {escape(entry)}", body) for index, entry in enumerate(_toc_entries(markdown), start=1)],

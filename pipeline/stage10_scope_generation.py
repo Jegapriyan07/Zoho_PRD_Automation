@@ -1,4 +1,4 @@
-"""Stage 10: generate a PRD draft from finalized, human-validated requirements."""
+"""Stage 10: generate a complete PRD from finalized evidence and validation."""
 from openpyxl import load_workbook
 
 from pipeline.case_store import CaseStore
@@ -18,8 +18,8 @@ from pipeline.template_contract import PRD_STRUCTURE, ANALYSIS_RULES
 
 STAGE_NUM = 11
 
-INSTRUCTION = f"""You generate a client-ready Project Workflow Document as Markdown, built from the finalized \
-requirements, the validation workbook, rulebook-grounded data needs, and answered gap-analysis questions. \
+INSTRUCTION = f"""You generate a complete, client-ready Project Requirements Document as Markdown, built from the finalized \
+requirements, the validation workbook, rulebook-grounded data needs, and evidence-backed gap analysis. \
 The baseline and requirements are transcript-derived; do not omit a material business rule, source, filter, \
 formula, commercial term, delivery step, support commitment, or unresolved decision that appears in them.
 
@@ -47,10 +47,12 @@ Guidance per section:
     Filters, and Report Explanation, using the exact fields and filters from the validated workbook wherever available.
 - The Workflow must use numbered steps with owner labels and effort labels. Include customer preparation, consolidation, \
     dashboard/ratio build, testing/validation, handover, training, and the stated hypercare period.
-- Estimated Effort must be a table with Step, Activity, and Effort. Use `[Editable]` when the evidence does not establish \
-    a number; do not invent hours or days.
+- Estimated Effort must be a table with Step, Activity, and Effort. When the evidence does not establish \
+    a number, write `Determined during feasibility and recorded in the approved SOW`. Never emit editable fields,
+    bracketed placeholders, or instructions for a human to complete the PRD.
 - Project Cost must be a table with Item and Amount. Preserve explicit transcript terms such as the discovery fee and \
-    implementation day rate, but use `[Editable]` for totals or durations not established by evidence.
+    implementation day rate. For totals not established by evidence, write `Determined from the approved feasibility estimate`.
+- Treat unresolved items as explicit open decisions or feasibility gates, not editable placeholders.
 - The Outcome must be a concise bullet list of measurable deliverables and business outcomes.
 - Use explicit transcript facts, not generic filler. Mark mock/sample metadata and assumptions clearly as assumptions.
 - Include unresolved gaps and clarification answers in the relevant sections.
@@ -168,6 +170,9 @@ def run(
     store.log_claude_call(STAGE_NUM, system_prompt, user_prompt, response_text)
 
     scope_doc = ScopeDocument.model_validate(extract_json(response_text))
+    forbidden = ("[Editable", "Editable by human", "To be finalized", "Enter effort", "Enter rate")
+    if any(token.lower() in scope_doc.markdown.lower() for token in forbidden):
+        raise ValueError("Generated PRD contains an editable placeholder; generation must be evidence-complete.")
     store.save_stage(STAGE_NUM, scope_doc)
     store.save_prd(scope_doc.markdown)
     render(scope_doc.markdown, store.artifact_path("client_ready_prd.docx"))

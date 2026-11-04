@@ -11,6 +11,7 @@ from pipeline.models import (
 )
 from pipeline.stage6_sql_discovery import run as discover_sql
 from pipeline.stage3_transcript_analysis import _chunk_transcript
+from pipeline.spandan_profile import baseline_payload, decomposition_payload, prd_markdown
 
 
 class AnalyticalContractTests(unittest.TestCase):
@@ -54,6 +55,24 @@ class AnalyticalContractTests(unittest.TestCase):
         self.assertEqual(chunks[0][0], "meeting.txt#chunk-001")
         self.assertTrue(all(text.strip() for _, text in chunks))
         self.assertIn("Final decision.", chunks[-1][1])
+
+    def test_spandan_profile_is_grouped_and_non_editable(self):
+        baseline = baseline_payload()
+        decomposition = decomposition_payload()
+        self.assertEqual(len(baseline["baseline_requirements"]), 3)
+        self.assertEqual(
+            [item["requirement_id"] for item in decomposition["requirements"]],
+            ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005"],
+        )
+        markdown = prd_markdown().lower()
+        for forbidden in ("[editable", "editable by human", "enter effort", "enter rate"):
+            self.assertNotIn(forbidden, markdown)
+        for heading in (
+            "## detailed requirements",
+            "## delivery workflow",
+            "## project cost and commercial terms",
+        ):
+            self.assertIn(heading, markdown)
 
 
 if __name__ == "__main__":
