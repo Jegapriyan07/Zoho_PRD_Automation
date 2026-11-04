@@ -15,8 +15,10 @@ The pipeline combines transcript analysis, requirement reconciliation, Zoho Fina
 7. Maps conceptual data needs to Zoho Analytics metadata and designs read-only queries.
 8. Generates an Excel validation workbook for human review.
 9. Imports human validation results and analyzes gaps.
-10. Generates a PRD in Markdown and Word formats.
-11. Records the final acceptance decision and feedback.
+10. Persists an internal analytical assessment with evidence, feasibility, mappings, limitations,
+    and a prioritized gap register.
+11. Generates a PRD in Markdown and Word formats from the assessment and validated inputs.
+12. Records the final acceptance decision and feedback.
 
 See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for the complete stage-by-stage workflow and handoffs.
 
@@ -109,6 +111,12 @@ py main.py export-metadata --org-id "<organization-id>" --output cases\zoho_meta
 The export may contain an `errors` list when your OAuth user lacks access to a
 specific metadata endpoint; inspect that list before using the catalog.
 
+Metadata is never synthesized as customer schema. If no live or exported catalog
+is available, mappings and query design are recorded as `UNVERIFIED` with the
+explicit limitation `Workspace metadata not available for verification.`.
+Unattended/mock runs remain useful for plumbing validation, but they do not prove
+customer schema or data availability.
+
 ## Usage
 
 Run the complete pipeline with live services:
@@ -147,8 +155,11 @@ py main.py run --from-stage 4 --case-id <case-id>
 ```
 
 The default case output directory is `cases/`. Local case artifacts and customer evidence are intentionally ignored by Git.
-Unattended runs print exactly three primary output paths: the questions analyser,
-the validation workbook, and `final_prd.md`.
+Every generated case-level artifact includes its case ID in the filename, for example
+`validation_workbook_case_20261103_184217_b26a86.xlsx`. This prevents Excel and
+other applications from confusing outputs from different runs. Unattended runs
+print exactly three primary output paths: the questions analyser, the validation
+workbook, and the case-specific final PRD.
 
 ## Project layout
 

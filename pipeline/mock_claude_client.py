@@ -84,7 +84,11 @@ def _extract_trailing_schema(system_prompt: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _transcript_analysis_handler(system_prompt: str, user_prompt: str) -> dict:
-    has_multiple_sources = user_prompt.count("--- TRANSCRIPT") > 1 or "REQUIREMENT DOCUMENT" in user_prompt
+    has_multiple_sources = (
+        user_prompt.count("--- TRANSCRIPT") > 1
+        or user_prompt.count("--- MEETING TRANSCRIPT") > 1
+        or "REQUIREMENT DOCUMENT" in user_prompt
+    )
     questions = [{
         "question_id": "Q-001",
         "question": "Which stakeholder-approved definition and source should be authoritative when two sources report the same business measure differently?",
@@ -121,6 +125,35 @@ def _transcript_analysis_handler(system_prompt: str, user_prompt: str) -> dict:
         "report_requirements": [],
         "commercial_terms": [],
         "delivery_commitments": [],
+    }
+
+
+def _transcript_chunk_analysis_handler(system_prompt: str, user_prompt: str) -> dict:
+    source_match = re.search(r"SOURCE CHUNK:\s*(.+)", user_prompt)
+    source = source_match.group(1).strip() if source_match else "unknown transcript chunk"
+    text = user_prompt.split("\n\n", 1)[-1].strip()
+    candidate_lines = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", text)
+        if 15 <= len(sentence.strip()) <= 300
+        and any(keyword in sentence.lower() for keyword in _REQUIREMENT_KEYWORDS)
+    ]
+    return {
+        "source": source.split("#", 1)[0],
+        "chunk_reference": source,
+        "executive_summary": "[MOCK] Bounded evidence extracted without treating it as final scope.",
+        "business_objectives": [],
+        "evidence_items": [],
+        "candidate_topics": [],
+        "candidate_requirements": candidate_lines[:20],
+        "clarifications": [],
+        "confirmations": [],
+        "changes": [],
+        "suggestions": [],
+        "assumptions": [],
+        "unresolved_questions": [],
+        "metrics": [],
+        "reports": [],
     }
 
 
@@ -445,6 +478,7 @@ Customer team prepares source tags, fields, and approved access.
 
 _HANDLERS = {
     "TranscriptAnalysis": _transcript_analysis_handler,
+    "TranscriptChunkAnalysis": _transcript_chunk_analysis_handler,
     "RequirementBaseline": _reconciliation_handler,
     "RequirementDecomposition": _decomposition_handler,
     "DataNeedSpecification": _data_needs_handler,

@@ -2,6 +2,10 @@
 
 This project converts meeting evidence into validated analytics requirements and a client-ready PRD.
 
+All generated files in a case directory include that case's ID in the filename.
+This keeps artifacts from separate runs distinguishable when opened together,
+especially Excel workbooks.
+
 The pipeline uses:
 
 - Meeting transcripts and an optional requirement document as business input.
@@ -91,8 +95,8 @@ Every structured stage output is validated with Pydantic models from `pipeline/m
 | 7. Metadata and query design | `adapters/live_analytics_mcp_adapter.py`, `pipeline/stage6_sql_discovery.py` | Data needs and live workspace schema | Metadata paths and read-only validation queries | `state/07_metadata_query_design.json` |
 | 8. Workbook generation | `pipeline/stage7_validation_workbook.py` | Requirements, data needs, RAG evidence, queries | Human validation workbook | `validation_workbook.xlsx` |
 | 9. Human validation import | `pipeline/stage8_human_validation.py` | Edited workbook | Human statuses, notes, and answers | `state/09_human_validation_import.json` |
-| 10. Gap analysis | `pipeline/stage9_gap_analysis.py` | Human results, requirements, data needs | Gaps, conflicts, readiness, clarification questions | `state/10_gap_clarification_analysis.json` |
-| 11. PRD generation | `pipeline/stage10_scope_generation.py` | Finalized data plus answered workbook questions | PRD markdown and Word document | `state/11_prd_generation.json`, `prd_draft.md`, `client_ready_prd.docx` |
+| 10. Gap analysis | `pipeline/stage9_gap_analysis.py` | Human results, requirements, data needs | Evidence-backed gaps, feasibility assessment, mappings, limitations, readiness, clarification questions | `state/10_gap_clarification_analysis.json`, `analytical_assessment.json`, `analytical_assessment.md` |
+| 11. PRD generation | `pipeline/stage10_scope_generation.py` | Finalized data, analytical assessment, plus answered workbook questions | PRD markdown and Word document | `state/11_prd_generation.json`, `prd_draft.md`, `client_ready_prd.docx` |
 | 12. Acceptance | `pipeline/stage11_acceptance.py` | PRD draft | Acceptance decision and feedback | `feedback.json` |
 
 ## What Each Stage Does
@@ -115,7 +119,10 @@ This stage does not expose private chain-of-thought or make decisions on behalf 
 
 ### Stage 4: Reconcile requirements
 
-`stage3_reconciliation.py` sends all transcripts and the optional requirement document to Claude. It produces one consistent requirement baseline and explicitly records conflicts instead of silently choosing between contradictory statements.
+`stage3_reconciliation.py` treats the original customer requirement document as the formal
+requirement source and sends transcripts as context for confirmation, clarification, correction,
+or conflict analysis. It produces one baseline while explicitly recording conflicts instead of
+silently choosing between contradictory statements.
 
 ### Stage 5: Decompose requirements
 
@@ -142,7 +149,11 @@ Claude then converts the retrieved evidence into conceptual data needs. At this 
 3. Retrieves column metadata for each view.
 4. Converts the result into a schema for the next stage.
 
-`stage6_sql_discovery.py` gives the schema and conceptual data needs to Claude. Claude generates metadata paths and read-only candidate queries. The pipeline does not execute those queries against customer data.
+`stage6_sql_discovery.py` gives the schema and conceptual data needs to Claude. Claude evaluates
+semantic meaning, types, grain, relationships, and calculation suitability before generating
+metadata paths and read-only candidate queries. If metadata is unavailable, the result is
+`UNVERIFIED` and no synthetic table or column is introduced. The pipeline does not execute
+queries against customer data.
 
 ### Stage 8: Create the Excel validation workbook
 
@@ -298,7 +309,11 @@ The RAG knowledge base project must ingest documents into Chroma before searches
 ## Design Rules
 
 - Business definitions come from transcript evidence, requirement documents, RAG evidence, or explicit client answers.
-- Metadata mapping uses only fields returned by the authenticated Zoho Analytics MCP service.
+- The original customer requirement document is authoritative for formal requirements; transcript
+  suggestions and conflicts remain visibly separate.
+- Metadata mapping uses only fields returned by the authenticated Zoho Analytics MCP service or a
+  supplied metadata export.
+- RAG provides general analytical guidance and never proves customer-specific schema or data availability.
 - Generated SQL is read-only and is intended for human validation.
 - The agent does not decide actual customer-data availability from metadata alone.
 - The PRD is generated only after human validation and clarification answers.

@@ -49,7 +49,7 @@ def _new_case() -> tuple[str, CaseStore]:
 
 
 def _mock_validate_workbook(store: CaseStore) -> None:
-    path = store.case_dir / "validation_workbook.xlsx"
+    path = store.artifact_path("validation_workbook.xlsx")
     workbook = load_workbook(path)
     matrix = workbook["Validation Matrix"]
     for row in matrix.iter_rows(min_row=2):
@@ -65,7 +65,7 @@ def _mock_validate_workbook(store: CaseStore) -> None:
 
 
 def _answer_new_gap_questions(store: CaseStore) -> None:
-    path = store.case_dir / "validation_workbook.xlsx"
+    path = store.artifact_path("validation_workbook.xlsx")
     workbook = load_workbook(path)
     gaps = workbook["Gaps & Clarifications"]
     for row in gaps.iter_rows(min_row=2):
@@ -215,9 +215,9 @@ def main() -> None:
         gap_analysis,
     )
     print(f"case_id: {case_id}")
-    print(f"workbook: {store.case_dir / 'validation_workbook.xlsx'}")
-    print(f"prd_markdown: {store.case_dir / 'prd_draft.md'}")
-    print(f"prd_word: {store.case_dir / 'client_ready_prd.docx'}")
+    print(f"workbook: {store.artifact_path('validation_workbook.xlsx')}")
+    print(f"prd_markdown: {store.artifact_path('prd_draft.md')}")
+    print(f"prd_word: {store.artifact_path('client_ready_prd.docx')}")
 
 
 if __name__ == "__main__":

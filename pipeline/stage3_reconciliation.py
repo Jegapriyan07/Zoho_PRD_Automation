@@ -17,6 +17,10 @@ will become the foundation of a client-facing PRD and budget estimate. Read the 
 transcript(s) and optional requirement document as a connected conversation, not as a bag of sentences.
 
 Rules:
+- The ORIGINAL CUSTOMER REQUIREMENT DOCUMENT is the authoritative formal requirement source.
+  Preserve every formal requirement from it, including its section/page/reference where available.
+  Meeting transcripts are context only: use them to confirm, clarify, propose, correct, contradict,
+  or leave requirements unresolved. A transcript suggestion must not silently become confirmed scope.
 - Separate the CLIENT'S business need from the analytics team's conversation. A client requirement \
 is something the client wants the delivered report, dashboard, data flow, calculation, filter, \
 business rule, support outcome, or deliverable to do.
@@ -48,9 +52,12 @@ the analytics team is a client requirement merely because it contains words like
 def _format_sources(context: CaseContext) -> str:
     parts = []
     for i, t in enumerate(context.transcripts, start=1):
-        parts.append(f"--- TRANSCRIPT {i}: {t.filename} ---\n{t.text}")
+        parts.append(f"--- MEETING TRANSCRIPT {i} (CONTEXT ONLY): {t.filename} ---\n{t.text}")
     if context.requirement_doc:
-        parts.append(f"--- REQUIREMENT DOC: {context.requirement_doc.filename} ---\n{context.requirement_doc.text}")
+        parts.append(
+            f"--- ORIGINAL CUSTOMER REQUIREMENT DOCUMENT (AUTHORITATIVE): "
+            f"{context.requirement_doc.filename} ---\n{context.requirement_doc.text}"
+        )
     return "\n\n".join(parts)
 
 

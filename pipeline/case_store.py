@@ -40,6 +40,11 @@ class CaseStore:
         for d in (self.evidence_dir, self.state_dir, self.logs_dir):
             d.mkdir(parents=True, exist_ok=True)
 
+    def artifact_path(self, filename: str) -> Path:
+        """Return a case-specific path for a user-facing generated artifact."""
+        path = Path(filename)
+        return self.case_dir / f"{path.stem}_{self.case_id}{path.suffix}"
+
     def copy_evidence(self, src_path: str) -> Path:
         src = Path(src_path)
         dest = self.evidence_dir / src.name
@@ -47,12 +52,12 @@ class CaseStore:
         return dest
 
     def save_manifest(self, manifest: dict) -> Path:
-        path = self.case_dir / "manifest.json"
+        path = self.artifact_path("manifest.json")
         path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return path
 
     def load_manifest(self) -> dict:
-        return json.loads((self.case_dir / "manifest.json").read_text(encoding="utf-8"))
+        return json.loads(self.artifact_path("manifest.json").read_text(encoding="utf-8"))
 
     def _state_path(self, stage_num: int) -> Path:
         name = STAGE_NAMES.get(stage_num, f"stage_{stage_num}")
@@ -103,21 +108,28 @@ class CaseStore:
             log_file.write(json.dumps({"tool": name, "request": request, "response": response}) + "\n")
 
     def save_scope_document(self, markdown: str) -> Path:
-        path = self.case_dir / "scope_document.md"
+        path = self.artifact_path("scope_document.md")
         path.write_text(markdown, encoding="utf-8")
         return path
 
     def save_prd(self, markdown: str) -> Path:
-        path = self.case_dir / "prd_draft.md"
+        path = self.artifact_path("prd_draft.md")
         path.write_text(markdown, encoding="utf-8")
         return path
 
     def save_transcript_analysis_report(self, markdown: str) -> Path:
-        path = self.case_dir / "transcript_analysis_report.md"
+        path = self.artifact_path("transcript_analysis_report.md")
         path.write_text(markdown, encoding="utf-8")
         return path
 
+    def save_analytical_assessment(self, assessment: BaseModel, markdown: str) -> tuple[Path, Path]:
+        json_path = self.artifact_path("analytical_assessment.json")
+        markdown_path = self.artifact_path("analytical_assessment.md")
+        json_path.write_text(assessment.model_dump_json(indent=2), encoding="utf-8")
+        markdown_path.write_text(markdown, encoding="utf-8")
+        return json_path, markdown_path
+
     def save_feedback(self, feedback: dict) -> Path:
-        path = self.case_dir / "feedback.json"
+        path = self.artifact_path("feedback.json")
         path.write_text(json.dumps(feedback, indent=2), encoding="utf-8")
         return path

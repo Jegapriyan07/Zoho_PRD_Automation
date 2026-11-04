@@ -62,7 +62,7 @@ the JSON itself (the markdown field's VALUE should of course contain markdown):"
 
 
 def _clarification_answers(store: CaseStore) -> str:
-    workbook_path = store.case_dir / "validation_workbook.xlsx"
+    workbook_path = store.artifact_path("validation_workbook.xlsx")
     workbook = load_workbook(workbook_path, data_only=False)
     sheet = workbook["Gaps & Clarifications"]
     unanswered_questions = [
@@ -134,6 +134,11 @@ def run(
     clarifications_text = "\n".join(
         f"- ({', '.join(q.related_requirement_ids)}) {q.question}" for q in gap_analysis.clarification_questions
     )
+    assessment_text = (
+        gap_analysis.assessment.model_dump_json(indent=2)
+        if gap_analysis.assessment
+        else "No separate analytical assessment was persisted; use only the evidence below."
+    )
 
     user_prompt = (
         f"BASELINE SUMMARY:\n{baseline.summary}\n\n"
@@ -154,6 +159,7 @@ def run(
         f"CLARIFICATION QUESTIONS:\n{clarifications_text}\n\n"
         f"HUMAN / CLIENT CLARIFICATION ANSWERS:\n{_clarification_answers(store)}\n\n"
         f"OVERALL READINESS: {gap_analysis.overall_readiness}\n\n"
+        f"INTERNAL ANALYTICAL ASSESSMENT (evidence and limitations must be preserved):\n{assessment_text}\n\n"
         f"ACCEPTANCE CRITERIA:\n{baseline.acceptance_criteria}\n\n"
         "Produce the PRD draft JSON now."
     )
@@ -164,6 +170,6 @@ def run(
     scope_doc = ScopeDocument.model_validate(extract_json(response_text))
     store.save_stage(STAGE_NUM, scope_doc)
     store.save_prd(scope_doc.markdown)
-    render(scope_doc.markdown, store.case_dir / "client_ready_prd.docx")
-    render_pdf(scope_doc.markdown, store.case_dir / "client_ready_prd.pdf")
+    render(scope_doc.markdown, store.artifact_path("client_ready_prd.docx"))
+    render_pdf(scope_doc.markdown, store.artifact_path("client_ready_prd.pdf"))
     return scope_doc

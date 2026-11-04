@@ -50,6 +50,13 @@ class MetricDefinition(BaseModel):
     source_precedence: list[str] = Field(default_factory=list)
     validation_method: Optional[str] = None
     status: Literal["confirmed", "assumption", "needs_decision"] = "confirmed"
+    business_objective: Optional[str] = None
+    numerator: Optional[str] = None
+    denominator: Optional[str] = None
+    time_grain: Optional[str] = None
+    dependencies: list[str] = Field(default_factory=list)
+    edge_cases: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
 
 
 class ReportRequirement(BaseModel):
@@ -61,6 +68,24 @@ class ReportRequirement(BaseModel):
     business_rules: list[str] = Field(default_factory=list)
     source_requirements: list[str] = Field(default_factory=list)
     acceptance_criteria: list[str] = Field(default_factory=list)
+
+
+class TranscriptChunkAnalysis(BaseModel):
+    source: str
+    chunk_reference: str
+    executive_summary: str
+    business_objectives: list[str] = Field(default_factory=list)
+    evidence_items: list[EvidenceItem] = Field(default_factory=list)
+    candidate_topics: list[str] = Field(default_factory=list)
+    candidate_requirements: list[str] = Field(default_factory=list)
+    clarifications: list[str] = Field(default_factory=list)
+    confirmations: list[str] = Field(default_factory=list)
+    changes: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
+    metrics: list[MetricDefinition] = Field(default_factory=list)
+    reports: list[ReportRequirement] = Field(default_factory=list)
 
 
 class TranscriptAnalysis(BaseModel):
@@ -78,6 +103,7 @@ class TranscriptAnalysis(BaseModel):
     report_requirements: list[ReportRequirement] = Field(default_factory=list)
     commercial_terms: list[str] = Field(default_factory=list)
     delivery_commitments: list[str] = Field(default_factory=list)
+    chunk_analyses: list[TranscriptChunkAnalysis] = Field(default_factory=list)
 
 
 class ConflictNote(BaseModel):
@@ -113,6 +139,9 @@ class AtomicRequirement(BaseModel):
     acceptance_criteria: list[str] = Field(default_factory=list)
     validation_method: Optional[str] = None
     dependencies: list[str] = Field(default_factory=list)
+    evidence_status: Literal[
+        "CONFIRMED", "SUPPORTED", "INFERRED", "UNVERIFIED", "CONFLICTED"
+    ] = "UNVERIFIED"
 
 
 class RequirementDecomposition(BaseModel):
@@ -164,6 +193,13 @@ class CandidateQuery(BaseModel):
     purpose: str
     sql: str
     metadata_paths: list[str] = Field(default_factory=list)
+    mapping_status: Literal[
+        "DIRECT MATCH", "POTENTIAL MATCH", "DERIVABLE", "PARTIAL MATCH",
+        "NO MATCH", "UNVERIFIED"
+    ] = "UNVERIFIED"
+    mapping_rationale: str = ""
+    validation_status: Literal["UNVERIFIED", "SCHEMA_SUPPORTED", "SCHEMA_BLOCKED"] = "UNVERIFIED"
+    missing_dependencies: list[str] = Field(default_factory=list)
 
 
 class SQLDiscovery(BaseModel):
@@ -211,7 +247,95 @@ class GapAnalysis(BaseModel):
     conflicting_definitions: list[str] = Field(default_factory=list)
     clarification_questions: list[GapClarificationQuestion] = Field(default_factory=list)
     overall_readiness: Literal["READY", "PARTIALLY READY", "BLOCKED"]
+    gaps: list["AnalyticalGap"] = Field(default_factory=list)
+    assessment: Optional["AnalyticalAssessment"] = None
+
+
+class EvidenceReference(BaseModel):
+    source_type: Literal["ORIGINAL_PRD", "TRANSCRIPT", "RAG", "ZOHO_METADATA", "HUMAN_VALIDATION"]
+    reference: str
+    statement: str = ""
+    status: Literal["CONFIRMED", "SUPPORTED", "INFERRED", "UNVERIFIED", "CONFLICTED"] = "SUPPORTED"
+
+
+class MetricAnalysis(BaseModel):
+    requirement_id: str
+    metric_name: str
+    business_definition: str = ""
+    formula: Optional[str] = None
+    numerator: Optional[str] = None
+    denominator: Optional[str] = None
+    grain: Optional[str] = None
+    time_grain: Optional[str] = None
+    dimensions: list[str] = Field(default_factory=list)
+    filters: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    edge_cases: list[str] = Field(default_factory=list)
+    feasibility: Literal[
+        "DIRECTLY_AVAILABLE", "DERIVABLE", "PARTIALLY_DERIVABLE",
+        "ADDITIONAL_DATA_REQUIRED", "DEFINITION_BLOCKED", "NOT_FEASIBLE",
+        "UNVERIFIED"
+    ] = "UNVERIFIED"
+    evidence: list[EvidenceReference] = Field(default_factory=list)
+
+
+class MetadataMapping(BaseModel):
+    requirement_id: str
+    business_concept: str
+    entity: Optional[str] = None
+    column: Optional[str] = None
+    data_type: Optional[str] = None
+    mapping_status: Literal[
+        "DIRECT MATCH", "POTENTIAL MATCH", "DERIVABLE", "PARTIAL MATCH",
+        "NO MATCH", "UNVERIFIED"
+    ] = "UNVERIFIED"
+    rationale: str = ""
+    confidence: Optional[str] = None
+    missing_dependencies: list[str] = Field(default_factory=list)
+    validation_status: Literal["UNVERIFIED", "SCHEMA_SUPPORTED", "SCHEMA_BLOCKED"] = "UNVERIFIED"
+    evidence: list[EvidenceReference] = Field(default_factory=list)
+
+
+class AnalyticalGap(BaseModel):
+    gap_id: str
+    requirement_id: Optional[str] = None
+    category: Literal[
+        "requirement", "business_definition", "metric_formula", "source_field",
+        "relationship", "granularity", "historical_data", "filter_dimension",
+        "technical_feasibility", "validation", "customer_clarification"
+    ]
+    description: str
+    supporting_evidence: list[EvidenceReference] = Field(default_factory=list)
+    business_impact: str = ""
+    technical_impact: str = ""
+    severity: Literal["blocker", "high", "medium", "low"] = "medium"
+    required_clarification: Optional[str] = None
+    recommended_action: str = ""
+    responsible_party: Optional[str] = None
+
+
+class AnalyticalAssessment(BaseModel):
+    executive_summary: str = ""
+    readiness: Literal["READY", "PARTIALLY READY", "BLOCKED", "UNVERIFIED"] = "UNVERIFIED"
+    requirement_inventory: list[str] = Field(default_factory=list)
+    confirmed_objectives: list[str] = Field(default_factory=list)
+    transcript_reconciliation: list[str] = Field(default_factory=list)
+    metric_analyses: list[MetricAnalysis] = Field(default_factory=list)
+    data_dependencies: list[str] = Field(default_factory=list)
+    metadata_mappings: list[MetadataMapping] = Field(default_factory=list)
+    unresolved_assumptions: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
+    technical_limitations: list[str] = Field(default_factory=list)
+    gaps: list[AnalyticalGap] = Field(default_factory=list)
+    clarification_questions: list[GapClarificationQuestion] = Field(default_factory=list)
+    implementation_considerations: list[str] = Field(default_factory=list)
+    evidence: list[EvidenceReference] = Field(default_factory=list)
+    quality_checks: list[str] = Field(default_factory=list)
 
 
 class ScopeDocument(BaseModel):
     markdown: str
+
+
+GapAnalysis.model_rebuild()

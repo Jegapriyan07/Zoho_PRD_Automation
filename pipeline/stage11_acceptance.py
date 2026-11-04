@@ -8,7 +8,7 @@ from pipeline.case_store import CaseStore
 
 
 def run(store: CaseStore) -> dict:
-    scope_path = store.case_dir / "prd_draft.md"
+    scope_path = store.artifact_path("prd_draft.md")
     print(scope_path.read_text(encoding="utf-8"))
     print("\n" + "=" * 70)
 
@@ -19,5 +19,5 @@ def run(store: CaseStore) -> dict:
 
     feedback = {"accepted": decision == "y", "notes": notes}
     store.save_feedback(feedback)
-    print(f"Feedback saved to {store.case_dir / 'feedback.json'}")
+    print(f"Feedback saved to {store.artifact_path('feedback.json')}")
     return feedback

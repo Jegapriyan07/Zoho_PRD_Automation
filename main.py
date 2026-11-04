@@ -30,7 +30,6 @@ from pipeline.mock_claude_client import MockClaudeClient
 from pipeline.unattended import (
     OfflineRulebookClient,
     answer_transcript_questions,
-    automated_schema,
     fill_validation_workbook,
 )
 from pipeline.models import (
@@ -117,7 +116,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         transcript_analysis = stage3_transcript_analysis.run(store, claude(), context)
         if args.unattended:
             transcript_analysis = answer_transcript_questions(store, transcript_analysis)
-        print(f"Transcript analysis report created: {store.case_dir / 'transcript_analysis_report.md'}")
+        print(f"Transcript analysis report created: {store.artifact_path('transcript_analysis_report.md')}")
         if to_stage == 3 and not args.unattended:
             print("Review and clarify the questions, then resume with --from-stage 4 --case-id <case_id>.")
             return
@@ -164,13 +163,14 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     "--workspace-id is required for REST metadata discovery. "
                     "Provide the client workspace ID for this case."
                 )
-            metadata_path = store.case_dir / "zoho_metadata.json"
+            metadata_path = store.artifact_path("zoho_metadata.json")
             exporter = ZohoMetadataExporter(workspace_id=args.workspace_id)
             exporter.export(str(metadata_path))
             schema = MetadataFileAdapter(str(metadata_path)).as_schema()
             print(f"Zoho REST metadata exported to: {metadata_path}")
         elif args.unattended and args.mock and not args.workspace:
-            schema = automated_schema(data_needs)
+            print("[Metadata unavailable] No customer workspace metadata was supplied; mappings remain UNVERIFIED.")
+            schema = {}
         else:
             if not args.workspace:
                 sys.exit("--workspace is required for stage 7 so metadata can be discovered through Zoho Analytics MCP.")
@@ -197,7 +197,16 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     if from_stage <= 10 <= to_stage:
         _announce(10)
-        gap_analysis = stage9_gap_analysis.run(store, claude(), validation, decomposition, data_needs)
+        gap_analysis = stage9_gap_analysis.run(
+            store,
+            claude(),
+            validation,
+            decomposition,
+            data_needs,
+            sql_discovery,
+            baseline,
+            transcript_analysis,
+        )
         workbook_path = stage7_validation_workbook.append_gap_questions(store, gap_analysis)
         if args.unattended:
             fill_validation_workbook(store)
@@ -209,9 +218,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if from_stage <= 11 <= to_stage:
         _announce(11)
         stage10_scope_generation.run(store, claude(), baseline, decomposition, data_needs, validation, gap_analysis)
-        final_prd = store.case_dir / "final_prd.md"
+        final_prd = store.artifact_path("final_prd.md")
         final_prd.write_text(
-            (store.case_dir / "prd_draft.md").read_text(encoding="utf-8"),
+            store.artifact_path("prd_draft.md").read_text(encoding="utf-8"),
             encoding="utf-8",
         )
 
@@ -228,9 +237,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
     print(f"\nDone. Case artifacts under: {store.case_dir}")
     if args.unattended:
         print("Three requested outputs:")
-        print(f"1. Questions analyser: {store.case_dir / 'transcript_analysis_report.md'}")
-        print(f"2. Validation book: {store.case_dir / 'validation_workbook.xlsx'}")
-        print(f"3. Final PRD: {store.case_dir / 'final_prd.md'}")
+        print(f"1. Questions analyser: {store.artifact_path('transcript_analysis_report.md')}")
+        print(f"2. Validation book: {store.artifact_path('validation_workbook.xlsx')}")
+        print(f"3. Final PRD: {store.artifact_path('final_prd.md')}")
 
 
 def build_parser() -> argparse.ArgumentParser:

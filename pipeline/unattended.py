@@ -26,7 +26,7 @@ def answer_transcript_questions(store: CaseStore, analysis: TranscriptAnalysis) 
 
 def fill_validation_workbook(store: CaseStore) -> None:
     """Populate the workbook with auditable metadata-only validation assumptions."""
-    path = store.case_dir / "validation_workbook.xlsx"
+    path = store.artifact_path("validation_workbook.xlsx")
     workbook = load_workbook(path)
     matrix = workbook["Validation Matrix"]
     for row in matrix.iter_rows(min_row=2):

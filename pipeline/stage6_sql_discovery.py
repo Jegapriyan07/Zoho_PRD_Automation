@@ -30,12 +30,13 @@ Rules:
 - Never write INSERT/UPDATE/DELETE/DROP/ALTER or any other write/DDL statement.
 - Use the business metric definition / calculation logic as the source of intent. The query must be \
 constructed to validate metadata support for that metric, not to guess the metric from column names.
-- For each data need, identify the exact metadata path(s) (module/entity/field) that support the \
-requirement, and put them in metadata_paths. Then write a single copyable validation query for a \
-human to run in the customer's approved reporting/query interface.
-- If a data concept has no plausible matching table/column in the schema above, still write a \
-best-effort query against the closest related table (e.g. `SELECT * FROM <closest_table> LIMIT 5`) \
-so its absence can be proven by the query result rather than assumed - do not skip it.
+- For each data need, identify exact metadata paths only when they appear in the supplied schema.
+  Explain semantic meaning, type, grain, aggregation, relationship, and calculation suitability in
+  mapping_rationale. Use DIRECT MATCH, POTENTIAL MATCH, DERIVABLE, PARTIAL MATCH, NO MATCH, or
+  UNVERIFIED; a similar name alone is never a direct match.
+- Do not invent a table, column, relationship, or SQL query. If the schema is empty or unavailable,
+  return an empty sql string, no metadata paths, mapping_status UNVERIFIED, validation_status
+  UNVERIFIED, and state "Workspace metadata not available for verification." in the rationale.
 - Do not execute queries or infer data availability. The human is the only authority who checks \
 whether original data exists, is complete, or is soiled.
 - Tie every query back to its requirement_id.
@@ -56,6 +57,22 @@ def run(
     data_needs: DataNeedSpecification,
     schema: dict[str, list[dict[str, Any]]],
 ) -> SQLDiscovery:
+    if not schema:
+        discovery = SQLDiscovery(queries=[
+            {
+                "requirement_id": need.requirement_id,
+                "purpose": "Metadata verification is required before query design.",
+                "sql": "",
+                "metadata_paths": [],
+                "mapping_status": "UNVERIFIED",
+                "mapping_rationale": "Workspace metadata not available for verification.",
+                "validation_status": "UNVERIFIED",
+            }
+            for need in data_needs.needs
+        ])
+        store.save_stage(STAGE_NUM, discovery)
+        return discovery
+
     instruction = INSTRUCTION_HEAD + _format_schema(schema) + INSTRUCTION_TAIL
     system_prompt = with_schema(instruction, SQLDiscovery)
 

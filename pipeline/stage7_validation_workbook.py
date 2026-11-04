@@ -66,7 +66,16 @@ def run(
         variables = "\n".join(concept.concept for concept in concepts)
         paths = "\n".join(path for query in queries for path in query.metadata_paths)
         query_text = "\n\n".join(query.sql for query in queries)
-        mapping_note = "Mapped from workspace metadata." if paths else "No confirmed metadata path; clarify with customer."
+        mapping_notes = [
+            f"{query.mapping_status}: {query.mapping_rationale}"
+            for query in queries
+            if query.mapping_rationale
+        ]
+        mapping_note = (
+            "\n".join(mapping_notes)
+            if mapping_notes
+            else "Workspace metadata not available for verification."
+        )
         matrix.append([
             requirement.requirement_id, requirement.description, requirement.category, formulas,
             references, requirement_retrieval.grounding_status if requirement_retrieval else "ERROR",
@@ -157,14 +166,14 @@ def run(
     instructions.column_dimensions["A"].width = 110
     instructions["A1"].font = Font(bold=True, size=14)
 
-    output_path = store.case_dir / "validation_workbook.xlsx"
+    output_path = store.artifact_path("validation_workbook.xlsx")
     workbook.save(output_path)
     return output_path
 
 
 def append_gap_questions(store: CaseStore, gap_analysis: GapAnalysis) -> Path:
     """Append LLM-generated follow-up questions after initial human validation."""
-    output_path = store.case_dir / "validation_workbook.xlsx"
+    output_path = store.artifact_path("validation_workbook.xlsx")
     workbook = Workbook()
     if output_path.exists():
         from openpyxl import load_workbook

@@ -6,7 +6,7 @@ from pipeline.models import HumanValidationRecord, HumanValidationResult
 
 
 def run(store: CaseStore) -> HumanValidationResult:
-    workbook_path = store.case_dir / "validation_workbook.xlsx"
+    workbook_path = store.artifact_path("validation_workbook.xlsx")
     if not workbook_path.exists():
         raise FileNotFoundError("Validation workbook not found. Run stage 8 first.")
     sheet = load_workbook(workbook_path, data_only=False)["Validation Matrix"]
