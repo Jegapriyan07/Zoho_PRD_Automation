@@ -15,23 +15,24 @@ from pipeline.case_store import CaseStore
 
 def create_case(
     transcript_paths: list[str],
-    requirement_path: Optional[str] = None,
+    requirement_paths: Optional[list[str] | str] = None,
     base_dir: str = "cases",
 ) -> tuple[str, CaseStore]:
     if not transcript_paths:
         raise ValueError("At least 1 transcript file is required.")
+    if isinstance(requirement_paths, str):
+        requirement_paths = [requirement_paths]
+    requirement_paths = requirement_paths or []
 
     case_id = f"case_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     store = CaseStore(case_id, base_dir=base_dir)
     store.ensure_dirs()
 
-    for p in transcript_paths:
+    for p in [*transcript_paths, *requirement_paths]:
         store.copy_evidence(p)
-    if requirement_path:
-        store.copy_evidence(requirement_path)
 
     store.save_manifest({
         "transcripts": [Path(p).name for p in transcript_paths],
-        "requirement_doc": Path(requirement_path).name if requirement_path else None,
+        "requirement_docs": [Path(p).name for p in requirement_paths],
     })
     return case_id, store

@@ -15,3 +15,5 @@ execution_output.txt
 .idea/
 Thumbs.db
 .DS_Store
+
+.llm_cache/

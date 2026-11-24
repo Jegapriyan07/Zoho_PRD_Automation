@@ -1,17 +1,31 @@
+import argparse
+import io
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
 from pipeline.case_store import CaseStore
 from pipeline.models import (
     CandidateQuery,
+    CaseContext,
     DataConcept,
     DataNeed,
     DataNeedSpecification,
     GapAnalysis,
+    TranscriptAnalysis,
+    TranscriptClarificationQuestion,
 )
 from pipeline.stage6_sql_discovery import run as discover_sql
 from pipeline.stage3_transcript_analysis import _chunk_transcript
 from pipeline.spandan_profile import baseline_payload, decomposition_payload, prd_markdown
+from pipeline.prd_docx_renderer import normalize_prd_markdown
+from pipeline.transcript_clarification import (
+    apply_clarification_answers,
+    clarification_gate_message,
+    write_clarification_template,
+)
 
 
 class AnalyticalContractTests(unittest.TestCase):
@@ -56,6 +70,91 @@ class AnalyticalContractTests(unittest.TestCase):
         self.assertTrue(all(text.strip() for _, text in chunks))
         self.assertIn("Final decision.", chunks[-1][1])
 
+    def test_transcript_clarification_gate_requires_answer_file(self):
+        analysis = TranscriptAnalysis(
+            executive_summary="Summary",
+            clarification_questions=[
+                TranscriptClarificationQuestion(
+                    question_id="Q-001",
+                    question="Which source is authoritative?",
+                    ambiguity="Two sources differ.",
+                    business_impact="The metric could be inconsistent.",
+                    priority="blocking",
+                )
+            ],
+            readiness="needs_clarification",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            store = CaseStore("case", base_dir=directory)
+            store.ensure_dirs()
+            answer_path = write_clarification_template(store, analysis)
+
+            updated = apply_clarification_answers(store, analysis)
+            self.assertIn("Q-001", clarification_gate_message(updated))
+
+            payload = json.loads(answer_path.read_text(encoding="utf-8"))
+            payload["answers"][0]["answer"] = "Use Zoho Books."
+            answer_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            updated = apply_clarification_answers(store, analysis)
+            self.assertEqual(updated.clarification_questions[0].answer, "Use Zoho Books.")
+            self.assertEqual(updated.readiness, "ready_for_reconciliation")
+            self.assertIsNone(clarification_gate_message(updated))
+
+    def test_transcript_clarification_gate_requires_analysis_when_marked_unresolved(self):
+        analysis = TranscriptAnalysis(
+            executive_summary="Summary",
+            readiness="needs_clarification",
+        )
+        self.assertIn("produced no answerable questions", clarification_gate_message(analysis))
+
+    def test_pipeline_blocks_stage_four_until_transcript_answers_are_saved(self):
+        analysis = TranscriptAnalysis(
+            executive_summary="Summary",
+            clarification_questions=[
+                TranscriptClarificationQuestion(
+                    question_id="Q-001",
+                    question="Which source is authoritative?",
+                    ambiguity="Two sources differ.",
+                    business_impact="The metric could be inconsistent.",
+                    priority="blocking",
+                )
+            ],
+            readiness="needs_clarification",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            store = CaseStore("case", base_dir=directory)
+            store.ensure_dirs()
+            store.save_stage(2, CaseContext(case_id="case", transcripts=[]))
+            store.save_stage(3, analysis)
+            args = argparse.Namespace(
+                from_stage=4,
+                to_stage=4,
+                case_id="case",
+                cases_dir=directory,
+                mock=True,
+                unattended=False,
+                transcripts=None,
+                requirement=None,
+            )
+
+            import main
+
+            output = io.StringIO()
+            with redirect_stdout(output), patch.object(main.stage3_reconciliation, "run") as reconcile:
+                main.run_pipeline(args)
+            reconcile.assert_not_called()
+            self.assertIn("[Clarification gate]", output.getvalue())
+
+            answer_path = store.artifact_path("transcript_clarifications.json")
+            payload = json.loads(answer_path.read_text(encoding="utf-8"))
+            payload["answers"][0]["answer"] = "Use Zoho Books."
+            answer_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with redirect_stdout(io.StringIO()), patch.object(main.stage3_reconciliation, "run") as reconcile:
+                main.run_pipeline(args)
+            reconcile.assert_called_once()
+
     def test_spandan_profile_is_grouped_and_non_editable(self):
         baseline = baseline_payload()
         decomposition = decomposition_payload()
@@ -73,6 +172,24 @@ class AnalyticalContractTests(unittest.TestCase):
             "## project cost and commercial terms",
         ):
             self.assertIn(heading, markdown)
+
+    def test_prd_requirements_are_ordered_and_boxed(self):
+        markdown = """# PRD
+
+## Detailed Requirements
+### REQ-004 — Current Assets Summary
+Current assets.
+
+### REQ-001 — Unified source consolidation
+Consolidate sources.
+
+### REQ-005 — Feasibility sample and SOW
+Build a sample.
+"""
+        normalized = normalize_prd_markdown(markdown)
+        self.assertLess(normalized.index("REQ-001"), normalized.index("REQ-004"))
+        self.assertLess(normalized.index("REQ-004"), normalized.index("REQ-005"))
+        self.assertIn("| Requirement | Description |", normalized)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Stage 9: Gap & Clarification Analysis from human Excel validation."""
 from pipeline.case_store import CaseStore
 from pipeline.claude_client import ClaudeClient
-from pipeline.json_utils import extract_json
+from pipeline.json_utils import call_and_validate, extract_json
 from pipeline.models import (
     AnalyticalAssessment,
     DataNeedSpecification,
@@ -83,7 +83,7 @@ def run(
         if baseline else "Authoritative requirement baseline was not supplied."
     )
     transcript_text = (
-        transcript_analysis.model_dump_json(indent=2)
+        transcript_analysis.model_dump_json(exclude={"chunk_analyses"}, exclude_none=True)
         if transcript_analysis else "Transcript analysis was not supplied."
     )
     user_prompt = (
@@ -95,10 +95,7 @@ def run(
         "Produce the gap analysis JSON now."
     )
 
-    response_text = claude.call(system_prompt, user_prompt)
-    store.log_claude_call(STAGE_NUM, system_prompt, user_prompt, response_text)
-
-    gap_analysis = GapAnalysis.model_validate(extract_json(response_text))
+    gap_analysis = call_and_validate(claude, store, STAGE_NUM, system_prompt, user_prompt, GapAnalysis)
     store.save_stage(STAGE_NUM, gap_analysis)
     derived_mappings = [
         MetadataMapping(

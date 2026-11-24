@@ -9,7 +9,8 @@ especially Excel workbooks.
 The pipeline uses:
 
 - Meeting transcripts and an optional requirement document as business input.
-- A RAG MCP service for Zoho Finance definitions, formulas, and report guidance.
+- A RAG MCP service for Zoho product definitions, formulas, and report guidance,
+  scoped per run to exactly one isolated knowledge base (e.g. `finance` or `recruit`).
 - An authenticated Zoho Analytics MCP service for workspace and metadata discovery.
 - Claude or the local mock client for structured reasoning.
 - A human-owned Excel validation step before the PRD is generated.
@@ -17,12 +18,13 @@ The pipeline uses:
 The system reads metadata and generates validation queries. It does not query or evaluate original customer data automatically.
 
 For a no-interception run, pass `--unattended`. The pipeline fills stage-3
-questions, populates the validation workbook with explicit metadata-only
-assumptions, answers generated gap questions, and automatically accepts the
-generated draft. The PRD generator converts unsupported details into explicit
-open decisions or feasibility gates and rejects editable placeholders. This
-mode produces the questions analyser, validation workbook, and final PRD; it
-does not represent customer row-level verification.
+questions with explicit assumptions, populates the validation workbook with
+metadata-only assumptions, answers generated gap questions, and automatically
+accepts the generated draft. These are not stakeholder decisions. The PRD
+generator converts unsupported details into explicit open decisions or
+feasibility gates and rejects editable placeholders. This mode produces the
+questions analyser, validation workbook, and final PRD; it does not represent
+customer row-level verification.
 
 ## Analysis Contract
 
@@ -45,18 +47,21 @@ The contract requires:
 flowchart TD
     A[Transcripts + optional requirement document] --> B[Stage 1: Create case]
     B --> C[Stage 2: Parse evidence]
-    C --> D[Stage 3: Analyze transcript and ask upfront questions]
-    D --> E[Stage 4: Reconcile requirements]
-    E --> F[Stage 5: Decompose atomic requirements]
-    F --> G[Stage 6: Retrieve RAG evidence and define data needs]
-    G --> H[Stage 7: Read Zoho workspace metadata and design queries]
-    H --> I[Stage 8: Create Excel validation workbook]
-    I --> J[Human runs queries and marks data status]
-    J --> K[Stage 9: Import workbook]
-    K --> L[Stage 10: Analyze gaps and create questions]
-    L --> M[Human answers questions in Excel]
-    M --> N[Stage 11: Generate PRD]
-    N --> O[Stage 12: Accept or provide feedback]
+    C --> D[Stage 3: AI analyze transcript and ask upfront questions]
+    D --> E[Human answers transcript clarifications]
+    E --> F{All questions answered?}
+    F -->|Yes| G[Stage 4: Reconcile requirements]
+    F -->|No| E
+    G --> H[Stage 5: Decompose atomic requirements]
+    H --> I[Stage 6: Retrieve RAG evidence and define data needs]
+    I --> J[Stage 7: Read Zoho workspace metadata and design queries]
+    J --> K[Stage 8: Create Excel validation workbook]
+    K --> L[Human runs queries and marks data status]
+    L --> M[Stage 9: Import workbook]
+    M --> N[Stage 10: Analyze gaps and create questions]
+    N --> O[Human answers questions in Excel]
+    O --> P[Stage 11: Generate PRD]
+    P --> Q[Stage 12: Accept or provide feedback]
 ```
 
 ## Input
@@ -70,8 +75,11 @@ Required for a new run:
 
 Optional:
 
-- A `.txt` or `.md` requirement document.
+- Optional requirement documents or images: `.txt`, `.md`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`
+  (pass several to `--requirement`). Images are transcribed by the LLM's vision input in stage 2
+  (requires a vision-capable model; not available with `--mock`) and cached as `<image>.extracted.md`.
 - A custom RAG MCP URL.
+- A `--rag-kb` knowledge base name (defaults to `recruit` when `--metadata-source recruit`, else `finance`).
 - A custom Zoho Analytics MCP URL.
 - `--mock` to run without the Claude API.
 
@@ -89,13 +97,14 @@ Every structured stage output is validated with Pydantic models from `pipeline/m
 |---|---|---|---|---|
 | 1. Case creation | `pipeline/stage1_intake.py` | Input file paths | Case folder, manifest, copied evidence | `manifest.json`, `evidence/` |
 | 2. Document parsing | `pipeline/stage2_parsing.py` | Manifest and evidence files | `CaseContext` | `state/02_document_parsing.json` |
-| 3. Transcript analysis | `pipeline/stage3_transcript_analysis.py` | `CaseContext` | Confirmed signals, assumptions, ambiguity risks, and answerable clarification questions | `state/03_transcript_analysis.json`, `transcript_analysis_report.md` |
-| 4. Requirement reconciliation | `pipeline/stage3_reconciliation.py` | `CaseContext` and transcript analysis | Unified baseline and conflicts | `state/04_requirement_reconciliation.json` |
+| 3. Transcript analysis | `pipeline/stage3_transcript_analysis.py` | `CaseContext` | AI-produced confirmed signals, assumptions, ambiguity risks, and answerable clarification questions | `state/03_transcript_analysis.json`, `transcript_analysis_report_<case-id>.md`, `transcript_clarifications_<case-id>.json` |
+| 3a. Clarification gate | `pipeline/transcript_clarification.py` | Transcript questions and stakeholder answers | Validated answers; all questions must be answered before continuing | Updated stage-3 state and analysis report |
+| 4. Requirement reconciliation | `pipeline/stage3_reconciliation.py` | `CaseContext` and clarified transcript analysis | Unified baseline and conflicts | `state/04_requirement_reconciliation.json` |
 | 5. Requirement decomposition | `pipeline/stage4_decomposition.py` | Requirement baseline | Atomic `REQ-###` requirements | `state/05_requirement_decomposition.json` |
 | 6. Data need specification | `pipeline/stage5_data_needs.py` | Atomic requirements and RAG results | Conceptual entities, fields, formulas, joins, and filters | `state/06_data_need_specification.json` |
 | 6. RAG retrieval audit | `pipeline/stage5_data_needs.py`, `pipeline/rag_mcp_client.py` | Atomic requirement text | Retrieved rulebook chunks and scores | `state/65_rulebook_retrieval.json` |
 | 7. Metadata and query design | `adapters/live_analytics_mcp_adapter.py`, `pipeline/stage6_sql_discovery.py` | Data needs and live workspace schema | Metadata paths and read-only validation queries | `state/07_metadata_query_design.json` |
-| 8. Workbook generation | `pipeline/stage7_validation_workbook.py` | Requirements, data needs, RAG evidence, queries | Human validation workbook | `validation_workbook.xlsx` |
+| 8. Workbook generation | `pipeline/stage7_validation_workbook.py` | Requirements, report table definitions, data needs, queries | Requirement-specific data-mapping workbook | `validation_workbook.xlsx` |
 | 9. Human validation import | `pipeline/stage8_human_validation.py` | Edited workbook | Human statuses, notes, and answers | `state/09_human_validation_import.json` |
 | 10. Gap analysis | `pipeline/stage9_gap_analysis.py` | Human results, requirements, data needs | Evidence-backed gaps, feasibility assessment, mappings, limitations, readiness, clarification questions | `state/10_gap_clarification_analysis.json`, `analytical_assessment.json`, `analytical_assessment.md` |
 | 11. PRD generation | `pipeline/stage10_scope_generation.py` | Finalized data, analytical assessment, plus answered workbook questions | PRD markdown and Word document | `state/11_prd_generation.json`, `prd_draft.md`, `client_ready_prd.docx` |
@@ -111,13 +120,15 @@ Every structured stage output is validated with Pydantic models from `pipeline/m
 
 `stage2_parsing.py` reads the copied `.txt` and `.md` files and creates one `CaseContext` object. This is the normalized evidence passed to the reasoning stages.
 
-PDF and DOCX extraction are not implemented in the current local prototype.
+PDF and DOCX extraction are not implemented in the current local prototype. Requirement images are transcribed with the vision model and every requirement document/image is treated as authoritative.
 
 ### Stage 3: Analyze the transcript before implementation thinking
 
 `stage3_transcript_analysis.py` reviews the complete transcript evidence as a business-value analyst for Zoho Analytics. It separates confirmed stakeholder signals from analyst suggestions, surfaces assumptions and ambiguity risks, and produces specific questions with business impact and priority. The result is saved as both structured JSON and `transcript_analysis_report.md`.
 
-This stage does not expose private chain-of-thought or make decisions on behalf of stakeholders. It creates a shared decision brief so humans can resolve source-of-truth, metric, time, scope, data-quality, and acceptance questions before reconciliation and implementation planning.
+This stage does not expose private chain-of-thought or make decisions on behalf of stakeholders. It creates a shared decision brief and a case-specific `transcript_clarifications_<case-id>.json` answer file. The normal pipeline stops here until every generated question has a stakeholder answer; it will not reconcile requirements or run later stages on unanswered transcript questions. The saved answers are included in the analysis passed to reconciliation.
+
+Run stage 3, open the generated answer file, fill in each `answer`, save it, and resume with `--from-stage 4 --case-id <case-id>`. Attempting to resume directly at any later stage applies the same gate. `--unattended` is the explicit exception: it records clearly labeled assumptions rather than stakeholder answers.
 
 When the combined transcript size exceeds `TRANSCRIPT_ANALYSIS_CHUNK_CHARS`
 (default `18000`), the stage first extracts bounded `TranscriptChunkAnalysis`
@@ -136,11 +147,15 @@ silently choosing between contradictory statements.
 
 ### Stage 5: Decompose requirements
 
-`stage4_decomposition.py` converts the baseline into atomic, testable requirements with sequential IDs such as `REQ-001`. Each requirement is classified as a metric, dimension, filter, time logic, or business rule.
+`stage4_decomposition.py` converts the baseline into testable requirements with sequential IDs such as `REQ-001`. Each requirement has a short `title`, a heavily concise specification-style `description` (max ~40 words, no narrative), and a `source_reference` listing the requirement documents/images and transcripts it came from. Each is classified as a metric, dimension, filter, time logic, or business rule.
 
 ### Stage 6: Define data needs using RAG
 
-`stage5_data_needs.py` asks `rag_mcp_client.py` to search the external RAG MCP service for each atomic requirement. It searches for:
+`stage5_data_needs.py` asks `rag_mcp_client.py` to search the external RAG MCP service for each atomic requirement.
+Every call targets exactly one knowledge base (`RAGMCPClient.kb`, e.g. `finance` or `recruit` — resolved from
+`--rag-kb`/`RAG_KNOWLEDGE_BASE`, or from `--metadata-source` as described above). That knowledge base's isolated
+content is the only content searched; a misconfigured or unknown knowledge base name surfaces as a retrieval
+error instead of silently matching a different product's documentation. For each atomic requirement it searches for:
 
 1. The original requirement.
 2. Metric definitions, formulas, and variables.
@@ -167,12 +182,26 @@ queries against customer data.
 
 ### Stage 8: Create the Excel validation workbook
 
-`stage7_validation_workbook.py` creates `validation_workbook.xlsx` with these worksheets:
+`stage7_validation_workbook.py` creates `validation_workbook.xlsx` as a requirement-specific data-mapping
+workbook, one worksheet per report table, with the human-facing worksheets placed last:
 
-- `Validation Matrix`: requirements, formulas, evidence, data concepts, metadata paths, queries, and human status.
-- `Knowledge Base Evidence`: retrieved RAG chunks and scores.
-- `Gaps & Clarifications`: initial unresolved questions.
-- `Instructions`: the human validation workflow.
+- `1. <Report Table Name>`, `2. <Report Table Name>`, ... : one sheet per report table discovered in the
+  finalized requirements (for example 3 requested report tables produce 3 sheets). Each sheet lists its
+  Report Column, Sources (where the data actually lives in the customer's Zoho workspace - never a
+  transcript/document reference), Logic (business rule/formula), Mapping Status, and Acceptance Criteria.
+  Requirements that are not tied to a named report table are grouped into a trailing `General Requirements`
+  (or `All Requirements` when no report tables were identified) sheet.
+- `Questions`: every per-requirement clarification question, tagged with the report table it belongs to, for
+  the human/client to answer.
+- `Summary`: one row per report table (purpose, grain, total/mapped/missing columns, readiness) plus a total row.
+- `Missing - Not Available`: anything this Zoho application does not currently have (no metadata mapping, or a
+  requirement's recorded missing information), with a recommended action per row.
+- `Human Validation` (last): one row per requirement with its Sources, and the editable Human Status, Human
+  Notes, and Client Clarification / Answer columns.
+- `Instructions` (last): the human validation workflow.
+
+There is no knowledge-base/rulebook citation sheet or column; retrieved rulebook formulas are folded into the
+Logic column as plain business logic, without article/chunk citations.
 
 ### Stage 9: Import human validation
 
@@ -239,12 +268,17 @@ py main.py run --mock --to-stage 7 `
   --workspace "Customer Analytics"
 ```
 
-The recommended first pass is to stop after Stage 3, review the upfront questions, and then resume:
+The recommended first pass is to stop after Stage 3, review and answer the upfront questions, and then resume:
 
 ```powershell
 py main.py run --mock --to-stage 3 --transcripts transcript.txt
+notepad cases\<case_id>\transcript_clarifications_<case_id>.json
 py main.py run --mock --from-stage 4 --case-id <case_id>
 ```
+
+The pipeline also pauses automatically at the clarification gate if a run is
+started without `--to-stage 3`. All generated transcript questions must have
+answers before continuing.
 
 Complete `validation_workbook.xlsx`, then import the answers and generate gap questions:
 
@@ -308,13 +342,20 @@ the MCP route explicitly, or `--metadata <path>` to use an existing export.
 py main.py knowledge-status
 ```
 
+This lists every registered knowledge base (e.g. `finance`, `recruit`), its description, and document count.
+
 ## External Services
 
 The RAG client defaults to `http://localhost:8080/sse` in `pipeline/rag_mcp_client.py`. The RAG server commonly runs at `http://localhost:8100/sse`; set `RAG_MCP_URL` or pass `--rag-url` when these differ.
 
 The Zoho Analytics MCP URL is read from `ANALYTICS_MCP_URL` or supplied with `--analytics-mcp-url`.
 
-The RAG knowledge base project must ingest documents into Chroma before searches return useful results. Its service exposes `search_knowledge_base`, `list_categories`, and `ingest_documents`.
+The RAG knowledge base project holds multiple physically isolated knowledge bases (one Chroma
+collection each, declared in its `knowledge_bases.json`) and must ingest documents into the
+target knowledge base's collection before searches return useful results. Its service exposes
+`list_knowledge_bases`, `search_knowledge_base`, `list_categories`, and `ingest_documents` — the
+latter three all require a `knowledge_base` argument naming exactly one knowledge base, so a run
+scoped to `recruit` never reads or is affected by `finance` content, and vice versa.
 
 ## Design Rules
 

@@ -17,11 +17,69 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 NAVY = "20365C"
 ORANGE = "C96642"
 PALE_BLUE = "DCE6F1"
+REQUIREMENTS_HEADING = "## Detailed Requirements"
+
+
+def normalize_prd_markdown(markdown: str) -> str:
+    """Keep requirement cards ordered and ensure narrative requirements are boxed."""
+    lines = markdown.splitlines()
+    try:
+        start = lines.index(REQUIREMENTS_HEADING)
+    except ValueError:
+        return markdown
+
+    end = next(
+        (index for index in range(start + 1, len(lines)) if lines[index].startswith("## ")),
+        len(lines),
+    )
+    section = lines[start + 1:end]
+    normalized: list[str] = []
+    for line in section:
+        match = re.match(r"^(REQ-\d{3})\s+[—-]\s+(.+)$", line.strip())
+        normalized.append(f"### {line.strip()}" if match else line)
+
+    first_heading = next(
+        (index for index, line in enumerate(normalized) if line.startswith("### ")),
+        len(normalized),
+    )
+    prefix = normalized[:first_heading]
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in normalized[first_heading:]:
+        if line.startswith("### ") and current:
+            blocks.append(current)
+            current = []
+        current.append(line)
+    if current:
+        blocks.append(current)
+
+    requirement_blocks = [
+        block for block in blocks
+        if block and re.match(r"^### REQ-\d{3}\b", block[0])
+    ]
+    if len(requirement_blocks) > 1 and len(requirement_blocks) == len(blocks):
+        blocks.sort(key=lambda block: int(re.search(r"REQ-(\d{3})", block[0]).group(1)))
+
+    result: list[str] = prefix[:]
+    for block in blocks:
+        if block and re.match(r"^### REQ-\d{3}\b", block[0]) and "|" not in "\n".join(block):
+            body = " ".join(line.strip() for line in block[1:] if line.strip())
+            if body:
+                body = body.replace("|", " / ")
+                block = [
+                    block[0],
+                    "| Requirement | Description |",
+                    "|---|---|",
+                    f"| {block[0][4:]} | {body} |",
+                ]
+        result.extend(block)
+
+    return "\n".join(lines[:start + 1] + result + lines[end:])
 
 
 def _document_metadata(markdown: str) -> tuple[str, str]:
@@ -59,11 +117,18 @@ def _add_table(document: Document, rows: list[list[str]]) -> None:
         return
     table = document.add_table(rows=1, cols=len(rows[0]))
     table.style = "Table Grid"
+    table.autofit = False
+    header_properties = table.rows[0]._tr.get_or_add_trPr()
+    header_repeat = OxmlElement("w:tblHeader")
+    header_repeat.set(qn("w:val"), "true")
+    header_properties.append(header_repeat)
     for index, value in enumerate(rows[0]):
         _set_cell_text(table.rows[0].cells[index], value, bold=True, color="FFFFFF")
         _shade(table.rows[0].cells[index], NAVY)
     for values in rows[1:]:
         cells = table.add_row().cells
+        row_properties = table.rows[-1]._tr.get_or_add_trPr()
+        row_properties.append(OxmlElement("w:cantSplit"))
         for index, value in enumerate(values):
             _set_cell_text(cells[index], value)
 
@@ -100,7 +165,8 @@ def _add_markdown_body(document: Document, markdown: str) -> None:
             heading.style = document.styles["Heading 1"]
             continue
         if text.startswith("### "):
-            document.add_heading(text[4:], level=2)
+            heading = document.add_heading(text[4:], level=2)
+            heading.paragraph_format.keep_with_next = True
             continue
         if text.startswith(("- ", "* ")):
             paragraph = document.add_paragraph(style="List Bullet")
@@ -111,6 +177,7 @@ def _add_markdown_body(document: Document, markdown: str) -> None:
 
 def render(markdown: str, output_path: Path) -> Path:
     """Create an editable DOCX reflecting the supplied PRD's visual structure."""
+    markdown = normalize_prd_markdown(markdown)
     document = Document()
     section = document.sections[0]
     section.top_margin = Inches(0.7)
@@ -169,6 +236,7 @@ def render(markdown: str, output_path: Path) -> Path:
 
 def render_pdf(markdown: str, output_path: Path) -> Path:
     """Create a PDF using the same PRD structure and color palette as the DOCX."""
+    markdown = normalize_prd_markdown(markdown)
     styles = getSampleStyleSheet()
     body = ParagraphStyle(
         "PrdBody", parent=styles["BodyText"], fontName="Helvetica", fontSize=9.5,
@@ -214,7 +282,10 @@ def render_pdf(markdown: str, output_path: Path) -> Path:
         Spacer(1, 0.25 * inch),
     ]
 
+    pending_subheading = None
+
     def add_table(table_lines: list[str]) -> None:
+        nonlocal pending_subheading
         rows = [
             [cell.strip() for cell in line.strip().strip("|").split("|")]
             for line in table_lines
@@ -223,7 +294,20 @@ def render_pdf(markdown: str, output_path: Path) -> Path:
         if not rows:
             return
         available_width = A4[0] - 1.0 * inch
-        widths = [available_width / len(rows[0])] * len(rows[0])
+        weights = [max(1, min(32, max(len(row[index]) for row in rows)))
+                   for index in range(len(rows[0]))]
+        total_weight = sum(weights)
+        widths = [available_width * weight / total_weight for weight in weights]
+        min_width = 30
+        narrow = [index for index, width in enumerate(widths) if width < min_width]
+        if narrow:
+            # Keep every column wider than its cell padding; take the extra width from the widest columns.
+            deficit = sum(min_width - widths[index] for index in narrow)
+            wide_total = sum(width for index, width in enumerate(widths) if index not in narrow)
+            widths = [
+                min_width if index in narrow else width * (1 - deficit / wide_total)
+                for index, width in enumerate(widths)
+            ]
         table_data = [[Paragraph(escape(value), body) for value in row] for row in rows]
         table_data[0] = [Paragraph(value.replace("&", "&amp;"), ParagraphStyle(
             "TableHeader", parent=body, fontName="Helvetica-Bold", textColor=colors.white,
@@ -238,7 +322,11 @@ def render_pdf(markdown: str, output_path: Path) -> Path:
             ("TOPPADDING", (0, 0), (-1, -1), 5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ]))
-        story.append(table)
+        if pending_subheading is not None:
+            story.append(KeepTogether([pending_subheading, table]))
+            pending_subheading = None
+        else:
+            story.append(table)
         story.append(Spacer(1, 0.12 * inch))
 
     table_lines: list[str] = []
@@ -253,13 +341,26 @@ def render_pdf(markdown: str, output_path: Path) -> Path:
         if not text or text.startswith("# "):
             continue
         if text.startswith("## "):
+            if pending_subheading is not None:
+                story.append(pending_subheading)
+                pending_subheading = None
             story.append(Paragraph(text[3:], heading))
         elif text.startswith("### "):
-            story.append(Paragraph(text[4:], subheading))
+            if pending_subheading is not None:
+                story.append(pending_subheading)
+            pending_subheading = Paragraph(text[4:], subheading)
         elif text.startswith(("- ", "* ")):
+            if pending_subheading is not None:
+                story.append(pending_subheading)
+                pending_subheading = None
             story.append(Paragraph("• " + text[2:], body))
         else:
+            if pending_subheading is not None:
+                story.append(pending_subheading)
+                pending_subheading = None
             story.append(Paragraph(escape(text), body))
+    if pending_subheading is not None:
+        story.append(pending_subheading)
 
     def footer(canvas, document) -> None:
         canvas.saveState()

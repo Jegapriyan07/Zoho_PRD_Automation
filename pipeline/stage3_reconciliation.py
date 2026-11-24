@@ -7,7 +7,7 @@ from pipeline.case_store import CaseStore
 from pipeline.claude_client import ClaudeClient
 from pipeline.json_utils import extract_json
 from pipeline.models import CaseContext, RequirementBaseline, TranscriptAnalysis
-from pipeline.prompt_utils import with_schema
+from pipeline.prompt_utils import format_requirement_docs, with_schema
 from pipeline.template_contract import ANALYSIS_RULES
 
 STAGE_NUM = 4
@@ -45,6 +45,10 @@ the analytics team is a client requirement merely because it contains words like
 - Preserve the analysis brief's evidence classifications and carry confirmed objectives, scope boundaries,
   source precedence, metric definitions, report structures, acceptance criteria, commercial terms, and delivery
   commitments into the corresponding fields. Keep unresolved items in conflicts, assumptions, or acceptance criteria.
+- Multiple requirement documents or images may be supplied. All of them are authoritative; merge overlapping
+  items across them and across transcripts into one baseline, and record disagreements in `conflicts`.
+- End every item in `baseline_requirements` with a source tag listing the exact evidence filenames that
+  support it, plus section/page if known, in the form `(Source: file1.png p2; call2.txt)`.
 {ANALYSIS_RULES}
 - Respond with ONLY a single JSON object matching this schema, no prose, no markdown fences:"""
 
@@ -53,11 +57,7 @@ def _format_sources(context: CaseContext) -> str:
     parts = []
     for i, t in enumerate(context.transcripts, start=1):
         parts.append(f"--- MEETING TRANSCRIPT {i} (CONTEXT ONLY): {t.filename} ---\n{t.text}")
-    if context.requirement_doc:
-        parts.append(
-            f"--- ORIGINAL CUSTOMER REQUIREMENT DOCUMENT (AUTHORITATIVE): "
-            f"{context.requirement_doc.filename} ---\n{context.requirement_doc.text}"
-        )
+    parts.extend(format_requirement_docs(context.requirement_docs))
     return "\n\n".join(parts)
 
 
@@ -68,7 +68,10 @@ def run(
     transcript_analysis: TranscriptAnalysis | None = None,
 ) -> RequirementBaseline:
     system_prompt = with_schema(INSTRUCTION, RequirementBaseline)
-    analysis_text = transcript_analysis.model_dump_json(indent=2) if transcript_analysis else "Not available."
+    analysis_text = (
+        transcript_analysis.model_dump_json(exclude={"chunk_analyses"}, exclude_none=True)
+        if transcript_analysis else "Not available."
+    )
     user_prompt = (
         f"CASE ID: {context.case_id}\n\nUPFRONT TRANSCRIPT ANALYSIS:\n{analysis_text}\n\n"
         f"{_format_sources(context)}\n\n"

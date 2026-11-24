@@ -3,17 +3,21 @@ from openpyxl import load_workbook
 
 from pipeline.case_store import CaseStore
 from pipeline.models import HumanValidationRecord, HumanValidationResult
+from pipeline.stage7_validation_workbook import column_map
 
 
 def run(store: CaseStore) -> HumanValidationResult:
     workbook_path = store.artifact_path("validation_workbook.xlsx")
     if not workbook_path.exists():
         raise FileNotFoundError("Validation workbook not found. Run stage 8 first.")
-    sheet = load_workbook(workbook_path, data_only=False)["Validation Matrix"]
+    sheet = load_workbook(workbook_path, data_only=False)["Human Validation"]
+    columns = column_map(sheet)
+    id_col, status_col = columns["Requirement ID"], columns["Human Status"]
+    notes_col, answer_col = columns["Human Notes"], columns["Client Clarification / Answer"]
     records = []
     missing_statuses = []
     for row in sheet.iter_rows(min_row=2, values_only=True):
-        requirement_id, status, notes, answer = row[0], row[10], row[11], row[12]
+        requirement_id, status, notes, answer = row[id_col], row[status_col], row[notes_col], row[answer_col]
         if requirement_id and not status:
             missing_statuses.append(requirement_id)
         elif requirement_id:

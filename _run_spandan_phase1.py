@@ -306,6 +306,6 @@ sql_discovery = stage6_sql_discovery.run(store, claude_stage6, data_needs, {})
 # ---------------------------------------------------------------------------
 # Stage 7: Excel validation workbook (real)
 # ---------------------------------------------------------------------------
-workbook_path = stage7_validation_workbook.run(store, decomposition, data_needs, sql_discovery, retrieval)
+workbook_path = stage7_validation_workbook.run(store, decomposition, data_needs, sql_discovery, baseline)
 print("workbook:", workbook_path)
 print("case_id:", case_id)

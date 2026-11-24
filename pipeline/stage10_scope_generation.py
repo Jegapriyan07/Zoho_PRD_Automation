@@ -3,7 +3,7 @@ from openpyxl import load_workbook
 
 from pipeline.case_store import CaseStore
 from pipeline.claude_client import ClaudeClient
-from pipeline.json_utils import extract_json
+from pipeline.json_utils import call_and_validate, extract_json
 from pipeline.models import (
     DataNeedSpecification,
     GapAnalysis,
@@ -12,7 +12,7 @@ from pipeline.models import (
     RequirementDecomposition,
     ScopeDocument,
 )
-from pipeline.prd_docx_renderer import render, render_pdf
+from pipeline.prd_docx_renderer import normalize_prd_markdown, render, render_pdf
 from pipeline.prompt_utils import with_schema
 from pipeline.template_contract import PRD_STRUCTURE, ANALYSIS_RULES
 
@@ -23,29 +23,39 @@ requirements, the validation workbook, rulebook-grounded data needs, and evidenc
 The baseline and requirements are transcript-derived; do not omit a material business rule, source, filter, \
 formula, commercial term, delivery step, support commitment, or unresolved decision that appears in them.
 
-The document MUST use exactly these top-level sections, in this order, as Markdown "##" headings:
+The document MUST use exactly these top-level sections, in this order, as Markdown "##" headings.
+This is the Spandan PRD template and its table of contents must not be renamed, merged, or reordered:
 
 ## Document Overview
 ## The Challenge
-## Data Sources
+## Objectives and Success Criteria
+## Scope
+## Data Sources and Source-of-Truth Rules
 ## Our Approach / How It Works
-## Data Preparation
+## Data Preparation and Data Quality Gates
 ## Detailed Requirements
-## The Workflow
+## Metric and Calculation Definitions
+## Delivery Workflow
 ## Estimated Effort
-## Project Cost
+## Project Cost and Commercial Terms
+## Risks, Open Decisions and Acceptance Criteria
 ## The Outcome
 
 Guidance per section:
 - Begin with one H1 title that names the solution and client where known, followed by a one-line subtitle.
 - Document Overview must include Purpose, What this document covers, and Intended audience.
-- Data Sources must identify every source, its relevant tables/files, fields, ownership, and intended use.
+- Objectives and Success Criteria must state measurable business outcomes and acceptance signals.
+- Scope must separate in-scope, out-of-scope, assumptions, and dependencies.
+- Data Sources and Source-of-Truth Rules must identify every source, its relevant tables/files, fields, ownership, intended use, and precedence.
 - Our Approach / How It Works must explain the consolidated reporting layer, source precedence, and human review.
-- Data Preparation must cover integration, consolidation/blending, account grouping/remapping, tags, and calculated metrics.
-- Detailed Requirements must contain three named subsections and one Markdown table for each: Property-Level Custom P&L, \
-    Portfolio / All-Properties Comparison, and Current Assets Summary. Each table must include Report Name, Columns, \
-    Filters, and Report Explanation, using the exact fields and filters from the validated workbook wherever available.
-- The Workflow must use numbered steps with owner labels and effort labels. Include customer preparation, consolidation, \
+- Data Preparation and Data Quality Gates must cover integration, consolidation/blending, account grouping/remapping, tags, calculated metrics, and reconciliation controls.
+- Detailed Requirements must contain five requirement cards in numeric order REQ-001 through REQ-005. \
+    REQ-002, REQ-003, and REQ-004 must be named Property-Level Custom P&L, Portfolio / All-Properties Comparison, \
+    and Current Assets Summary, respectively. Each report card must use one Markdown table with Report Name, \
+    Columns, Filters, and Acceptance, using the exact fields and filters from the validated workbook wherever available. \
+    REQ-001 and REQ-005 must also use a Markdown table, not a free-standing paragraph.
+- Metric and Calculation Definitions must state formulas and unresolved denominator or source decisions.
+- Delivery Workflow must use numbered steps with owner labels and effort labels. Include customer preparation, consolidation, \
     dashboard/ratio build, testing/validation, handover, training, and the stated hypercare period.
 - Estimated Effort must be a table with Step, Activity, and Effort. When the evidence does not establish \
     a number, write `Determined during feasibility and recorded in the approved SOW`. Never emit editable fields,
@@ -66,40 +76,25 @@ the JSON itself (the markdown field's VALUE should of course contain markdown):"
 def _clarification_answers(store: CaseStore) -> str:
     workbook_path = store.artifact_path("validation_workbook.xlsx")
     workbook = load_workbook(workbook_path, data_only=False)
-    sheet = workbook["Gaps & Clarifications"]
+    if "Questions" not in workbook.sheetnames:
+        return ""
+    sheet = workbook["Questions"]
+    # Columns: Report Table, Requirement ID, Question, Priority, Answer
     unanswered_questions = [
-        f"{row[0] or 'general'}: {row[1]}"
+        f"{row[0] or 'General'}: {row[2]}"
         for row in sheet.iter_rows(min_row=2, values_only=True)
-        if row[1] and not row[2]
+        if row[2] and not row[4]
     ]
     if unanswered_questions:
         raise ValueError(
-            "Complete every answer in the 'Gaps & Clarifications' worksheet before generating "
+            "Complete every answer in the 'Questions' worksheet before generating "
             "the PRD: " + "; ".join(unanswered_questions)
         )
-    answers = [
-        f"- ({row[0] or 'general'}) Question: {row[1]} | Answer: {row[2]}"
+    return "\n".join(
+        f"- ({row[0] or 'General'}) Question: {row[2]} | Answer: {row[4]}"
         for row in sheet.iter_rows(min_row=2, values_only=True)
-        if row[1]
-    ]
-    questions = workbook["Questions"] if "Questions" in workbook.sheetnames else None
-    if questions:
-        unanswered_questions = [
-            f"{row[0]}: {row[1]}"
-            for row in questions.iter_rows(min_row=2, values_only=True)
-            if row[1] and not row[3]
-        ]
-        if unanswered_questions:
-            raise ValueError(
-                "Complete every answer in the 'Questions' worksheet before generating "
-                "the PRD: " + "; ".join(unanswered_questions)
-            )
-        answers.extend(
-            f"- ({row[0]}) Question: {row[1]} | Answer: {row[3]}"
-            for row in questions.iter_rows(min_row=2, values_only=True)
-            if row[1]
-        )
-    return "\n".join(answers)
+        if row[2]
+    )
 
 
 def run(
@@ -166,13 +161,13 @@ def run(
         "Produce the PRD draft JSON now."
     )
 
-    response_text = claude.call(system_prompt, user_prompt, max_tokens=8192)
-    store.log_claude_call(STAGE_NUM, system_prompt, user_prompt, response_text)
-
-    scope_doc = ScopeDocument.model_validate(extract_json(response_text))
+    scope_doc = call_and_validate(
+        claude, store, STAGE_NUM, system_prompt, user_prompt, ScopeDocument, max_tokens=8192
+    )
     forbidden = ("[Editable", "Editable by human", "To be finalized", "Enter effort", "Enter rate")
     if any(token.lower() in scope_doc.markdown.lower() for token in forbidden):
         raise ValueError("Generated PRD contains an editable placeholder; generation must be evidence-complete.")
+    scope_doc.markdown = normalize_prd_markdown(scope_doc.markdown)
     store.save_stage(STAGE_NUM, scope_doc)
     store.save_prd(scope_doc.markdown)
     render(scope_doc.markdown, store.artifact_path("client_ready_prd.docx"))

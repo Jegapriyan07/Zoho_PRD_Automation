@@ -5,6 +5,7 @@ from openpyxl import load_workbook
 
 from pipeline.case_store import CaseStore
 from pipeline.models import DataNeedSpecification, RequirementRetrieval, TranscriptAnalysis
+from pipeline.stage7_validation_workbook import NOT_LOCATED, column_map
 
 
 AUTOMATED_NOTE = "Automated assumption; customer verification was not performed."
@@ -18,6 +19,8 @@ def answer_transcript_questions(store: CaseStore, analysis: TranscriptAnalysis) 
                 question.answer = f"Assumed option: {question.options[0]}. {AUTOMATED_NOTE}"
             else:
                 question.answer = f"Proceed using the evidence available in the transcript. {AUTOMATED_NOTE}"
+    if analysis.clarification_questions:
+        analysis.readiness = "ready_for_reconciliation"
     store.save_stage(3, analysis)
     from pipeline.stage3_transcript_analysis import _render_report
     store.save_transcript_analysis_report(_render_report(analysis))
@@ -28,24 +31,30 @@ def fill_validation_workbook(store: CaseStore) -> None:
     """Populate the workbook with auditable metadata-only validation assumptions."""
     path = store.artifact_path("validation_workbook.xlsx")
     workbook = load_workbook(path)
-    matrix = workbook["Validation Matrix"]
-    for row in matrix.iter_rows(min_row=2):
-        requirement_id = row[0].value
+    human = workbook["Human Validation"]
+    columns = column_map(human)
+    id_col, sources_col = columns["Requirement ID"], columns["Sources"]
+    status_col, notes_col = columns["Human Status"], columns["Human Notes"]
+    answer_col = columns["Client Clarification / Answer"]
+    for row in human.iter_rows(min_row=2):
+        requirement_id = row[id_col].value
         if not requirement_id:
             continue
-        has_mapping = bool(row[7].value)
-        row[10].value = "Available" if has_mapping else "Unclear"
-        row[11].value = (
+        has_mapping = bool(row[sources_col].value) and row[sources_col].value != NOT_LOCATED
+        row[status_col].value = "Available" if has_mapping else "Unclear"
+        row[notes_col].value = (
             "Automated metadata mapping found; source data was not queried."
             if has_mapping
             else "No metadata mapping was available; customer confirmation is required."
         )
-        row[12].value = AUTOMATED_NOTE
+        row[answer_col].value = AUTOMATED_NOTE
 
-    gaps = workbook["Gaps & Clarifications"]
-    for row in gaps.iter_rows(min_row=2):
-        if row[1].value and not row[2].value:
-            row[2].value = (
+    questions = workbook["Questions"]
+    questions_columns = column_map(questions)
+    question_col, answer_col = questions_columns["Question"], questions_columns["Answer"]
+    for row in questions.iter_rows(min_row=2):
+        if row[question_col].value and not row[answer_col].value:
+            row[answer_col].value = (
                 f"Automated assumption: retain the documented requirement and flag it for customer "
                 f"confirmation during delivery. {AUTOMATED_NOTE}"
             )

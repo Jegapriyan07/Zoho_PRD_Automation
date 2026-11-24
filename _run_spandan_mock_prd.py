@@ -15,6 +15,7 @@ from adapters.metadata_file_adapter import MetadataFileAdapter
 from pipeline import stage6_sql_discovery, stage7_validation_workbook
 from pipeline import stage8_human_validation, stage9_gap_analysis, stage10_scope_generation
 from pipeline.case_store import CaseStore
+from pipeline.stage7_validation_workbook import column_map
 from pipeline.mock_claude_client import MockClaudeClient
 from pipeline.models import (
     DataNeedSpecification,
@@ -22,7 +23,6 @@ from pipeline.models import (
     HumanValidationResult,
     RequirementBaseline,
     RequirementDecomposition,
-    RulebookRetrievalResult,
     SQLDiscovery,
 )
 
@@ -51,26 +51,30 @@ def _new_case() -> tuple[str, CaseStore]:
 def _mock_validate_workbook(store: CaseStore) -> None:
     path = store.artifact_path("validation_workbook.xlsx")
     workbook = load_workbook(path)
-    matrix = workbook["Validation Matrix"]
-    for row in matrix.iter_rows(min_row=2):
+    human = workbook["Human Validation"]
+    columns = column_map(human)
+    for row in human.iter_rows(min_row=2):
         if row[0].value:
-            row[10].value = "Available"
-            row[11].value = "MOCK ONLY: metadata/query shape checked against sample schema; no customer rows accessed."
-            row[12].value = "MOCK ASSUMPTION: customer confirms the mapped sample fields and formulas for PRD demonstration."
-    gaps = workbook["Gaps & Clarifications"]
-    for row in gaps.iter_rows(min_row=2):
-        if row[1].value:
-            row[2].value = "MOCK ASSUMPTION: use the transcript definition and sample metadata for this PRD demonstration; confirm with customer before implementation."
+            row[columns["Human Status"]].value = "Available"
+            row[columns["Human Notes"]].value = "MOCK ONLY: metadata/query shape checked against sample schema; no customer rows accessed."
+            row[columns["Client Clarification / Answer"]].value = "MOCK ASSUMPTION: customer confirms the mapped sample fields and formulas for PRD demonstration."
+    questions = workbook["Questions"]
+    questions_columns = column_map(questions)
+    for row in questions.iter_rows(min_row=2):
+        if row[questions_columns["Question"]].value:
+            row[questions_columns["Answer"]].value = "MOCK ASSUMPTION: use the transcript definition and sample metadata for this PRD demonstration; confirm with customer before implementation."
     workbook.save(path)
 
 
 def _answer_new_gap_questions(store: CaseStore) -> None:
     path = store.artifact_path("validation_workbook.xlsx")
     workbook = load_workbook(path)
-    gaps = workbook["Gaps & Clarifications"]
-    for row in gaps.iter_rows(min_row=2):
-        if row[1].value and not row[2].value:
-            row[2].value = "MOCK ASSUMPTION: pending customer confirmation; included as an editable clarification in this demo."
+    questions = workbook["Questions"]
+    columns = column_map(questions)
+    question_col, answer_col = columns["Question"], columns["Answer"]
+    for row in questions.iter_rows(min_row=2):
+        if row[question_col].value and not row[answer_col].value:
+            row[answer_col].value = "MOCK ASSUMPTION: pending customer confirmation; included as an editable clarification in this demo."
     workbook.save(path)
 
 
@@ -188,13 +192,12 @@ def main() -> None:
     baseline = store.load_stage(3, RequirementBaseline)
     decomposition = store.load_stage(4, RequirementDecomposition)
     data_needs = store.load_stage(5, DataNeedSpecification)
-    retrieval = store.load_stage(65, RulebookRetrievalResult)
 
     metadata = MetadataFileAdapter(str(ROOT / "sample_case" / "workspace_metadata.json"))
     sql_discovery = stage6_sql_discovery.run(
         store, MockClaudeClient(), data_needs, metadata.as_schema()
     )
-    stage7_validation_workbook.run(store, decomposition, data_needs, sql_discovery, retrieval)
+    stage7_validation_workbook.run(store, decomposition, data_needs, sql_discovery, baseline)
     _mock_validate_workbook(store)
 
     validation = stage8_human_validation.run(store)

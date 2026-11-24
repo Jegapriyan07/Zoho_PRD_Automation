@@ -8,11 +8,13 @@ extracted first, then consolidated globally before the stage handoff.
 """
 import os
 
+from pydantic import ValidationError
+
 from pipeline.case_store import CaseStore
 from pipeline.claude_client import ClaudeClient
 from pipeline.json_utils import extract_json
 from pipeline.models import CaseContext, TranscriptAnalysis, TranscriptChunkAnalysis
-from pipeline.prompt_utils import with_schema
+from pipeline.prompt_utils import format_requirement_docs, with_schema
 from pipeline.template_contract import ANALYSIS_RULES
 
 STAGE_NUM = 3
@@ -60,6 +62,7 @@ metrics, business decisions, or approvals.
 - Respond with ONLY one JSON object matching the schema, with no markdown fences or prose outside JSON."""
 
 DEFAULT_CHUNK_CHARS = 18000
+DEFAULT_MAX_EVIDENCE_CHARS = 120000
 
 
 def _chunk_transcript(filename: str, text: str, chunk_chars: int) -> list[tuple[str, str]]:
@@ -85,17 +88,38 @@ def _needs_hierarchical_analysis(context: CaseContext, chunk_chars: int) -> bool
     return transcript_chars > chunk_chars
 
 
+MAX_ATTEMPTS = 3
+
+
+def _call_and_parse(store: CaseStore, claude: ClaudeClient, system_prompt: str, user_prompt: str,
+                    model_cls, suffix: str | None = None, **call_kwargs):
+    """Call the LLM and validate the result, re-asking with the error when the JSON is malformed or off-schema."""
+    prompt = user_prompt
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        response_text = claude.call(system_prompt, prompt, **call_kwargs)
+        log_suffix = suffix if attempt == 1 else f"{suffix or 'call'}_retry{attempt - 1}"
+        store.log_claude_call(STAGE_NUM, system_prompt, prompt, response_text, log_suffix)
+        try:
+            return model_cls.model_validate(extract_json(response_text))
+        except (ValueError, ValidationError) as exc:
+            if attempt == MAX_ATTEMPTS:
+                raise
+            print(f"[Stage {STAGE_NUM}] Invalid LLM output (attempt {attempt}/{MAX_ATTEMPTS}): {str(exc)[:200]}")
+            prompt = (
+                f"{user_prompt}\n\nYour previous reply was rejected: {str(exc)[:1500]}\n"
+                "Return the complete corrected JSON only. Every string must be closed and escaped, every "
+                "list item must match the schema type exactly (plain strings where strings are required), "
+                "and the reply must be shorter and fit within the output limit."
+            )
+
+
 def _chunk_prompt(source: str, text: str) -> str:
     return f"SOURCE CHUNK: {source}\n\n{ text }\n\nExtract the bounded evidence JSON now."
 
 
 def _format_sources(context: CaseContext) -> str:
     parts = [f"--- MEETING TRANSCRIPT {i} (CONTEXT ONLY): {doc.filename} ---\n{doc.text}" for i, doc in enumerate(context.transcripts, 1)]
-    if context.requirement_doc:
-        parts.append(
-            f"--- ORIGINAL CUSTOMER REQUIREMENT DOCUMENT (AUTHORITATIVE): "
-            f"{context.requirement_doc.filename} ---\n{context.requirement_doc.text}"
-        )
+    parts.extend(format_requirement_docs(context.requirement_docs))
     return "\n\n".join(parts)
 
 
@@ -160,28 +184,53 @@ def run(store: CaseStore, claude: ClaudeClient, context: CaseContext) -> Transcr
     if not _needs_hierarchical_analysis(context, chunk_chars):
         system_prompt = with_schema(INSTRUCTION, TranscriptAnalysis)
         user_prompt = f"CASE ID: {context.case_id}\n\n{_format_sources(context)}\n\nProduce the analysis brief JSON now."
-        response_text = claude.call(system_prompt, user_prompt)
-        store.log_claude_call(STAGE_NUM, system_prompt, user_prompt, response_text)
-        analysis = TranscriptAnalysis.model_validate(extract_json(response_text))
+        analysis = _call_and_parse(store, claude, system_prompt, user_prompt, TranscriptAnalysis)
     else:
         chunk_analyses = []
+        chunk_filenames = []
         chunk_system_prompt = with_schema(CHUNK_INSTRUCTION, TranscriptChunkAnalysis)
         for document in context.transcripts:
             for source, text in _chunk_transcript(document.filename, document.text, chunk_chars):
                 user_prompt = _chunk_prompt(source, text)
-                response_text = claude.call(chunk_system_prompt, user_prompt)
-                store.log_claude_call(STAGE_NUM, chunk_system_prompt, user_prompt, response_text, source.replace("#", "_"))
-                chunk_analyses.append(TranscriptChunkAnalysis.model_validate(extract_json(response_text)))
+                chunk_analyses.append(_call_and_parse(
+                    store, claude, chunk_system_prompt, user_prompt, TranscriptChunkAnalysis,
+                    source.replace("#", "_"),
+                ))
+                chunk_filenames.append(document.filename)
 
         consolidation_system_prompt = with_schema(INSTRUCTION, TranscriptAnalysis)
         evidence_text = "\n\n".join(
-            f"--- CHUNK EVIDENCE: {chunk.chunk_reference} ---\n{chunk.model_dump_json(indent=2)}"
+            f"--- CHUNK EVIDENCE: {chunk.chunk_reference} ---\n{chunk.model_dump_json(exclude_none=True)}"
             for chunk in chunk_analyses
         )
-        requirement_text = (
-            f"\n\n--- ORIGINAL CUSTOMER REQUIREMENT DOCUMENT (AUTHORITATIVE): "
-            f"{context.requirement_doc.filename} ---\n{context.requirement_doc.text}"
-            if context.requirement_doc else ""
+        max_evidence_chars = int(os.getenv("CONSOLIDATION_MAX_EVIDENCE_CHARS", str(DEFAULT_MAX_EVIDENCE_CHARS)))
+        if len(evidence_text) > max_evidence_chars:
+            # A single global prompt this large exceeds LLM gateway limits, so reduce per transcript first.
+            by_transcript: dict[str, list[TranscriptChunkAnalysis]] = {}
+            for filename, chunk in zip(chunk_filenames, chunk_analyses):
+                by_transcript.setdefault(filename, []).append(chunk)
+            sections = []
+            for filename, chunks in by_transcript.items():
+                transcript_evidence = "\n\n".join(
+                    f"--- CHUNK EVIDENCE: {chunk.chunk_reference} ---\n{chunk.model_dump_json(exclude_none=True)}"
+                    for chunk in chunks
+                )
+                interim = _call_and_parse(
+                    store, claude, consolidation_system_prompt,
+                    f"CASE ID: {context.case_id}\n\n"
+                    f"Chunk-level evidence extracts from one meeting transcript ({filename}). Consolidate them "
+                    "into one deduplicated analysis of this meeting, preserving source references, contradictions, "
+                    "and unresolved questions.\n\n"
+                    f"{transcript_evidence}\n\nProduce the consolidated analysis brief JSON for this meeting now.",
+                    TranscriptAnalysis, f"{filename.replace('#', '_')}_meeting_consolidation", max_tokens=8192,
+                )
+                sections.append(
+                    f"--- MEETING EVIDENCE: {filename} ---\n"
+                    f"{interim.model_dump_json(exclude={'chunk_analyses'}, exclude_none=True)}"
+                )
+            evidence_text = "\n\n".join(sections)
+        requirement_text = "".join(
+            f"\n\n{section}" for section in format_requirement_docs(context.requirement_docs)
         )
         consolidation_user_prompt = (
             f"CASE ID: {context.case_id}\n\n"
@@ -192,14 +241,14 @@ def run(store: CaseStore, claude: ClaudeClient, context: CaseContext) -> Transcr
             f"{evidence_text}{requirement_text}\n\n"
             "Produce the globally consolidated analysis brief JSON now."
         )
-        response_text = claude.call(
-            consolidation_system_prompt, consolidation_user_prompt, max_tokens=8192
+        analysis = _call_and_parse(
+            store, claude, consolidation_system_prompt, consolidation_user_prompt, TranscriptAnalysis,
+            "consolidation", max_tokens=8192,
         )
-        store.log_claude_call(
-            STAGE_NUM, consolidation_system_prompt, consolidation_user_prompt, response_text, "consolidation"
-        )
-        analysis = TranscriptAnalysis.model_validate(extract_json(response_text))
         analysis.chunk_analyses = chunk_analyses
+
+    for question in analysis.clarification_questions:
+        question.answer = None
 
     store.save_stage(STAGE_NUM, analysis)
     store.save_transcript_analysis_report(_render_report(analysis))

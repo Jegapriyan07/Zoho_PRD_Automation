@@ -22,9 +22,15 @@ units that describe the client's intended outcome.
 - Every final requirement must represent one distinct business outcome, not an individual meeting
   statement. Combine semantically duplicated or fragmented discussions across meetings, and retain
   all supporting evidence references in the consolidated unit.
-- Give each requirement a meaningful business title, objective, problem, expected analytical outcome,
-  status, missing information, and clarification questions. Keep suggestions, assumptions, and
-  unresolved discussions visibly distinct from confirmed scope.
+- Give each requirement a short `title` (max 8 words, noun phrase, e.g. "Property-level P&L report"),
+  objective, problem, expected analytical outcome, status, missing information, and clarification questions.
+  Keep suggestions, assumptions, and unresolved discussions visibly distinct from confirmed scope.
+- `description` must be heavily concise and specification-style, NOT a story: at most 40 words, terse
+  `;`-separated clauses (what to build/calculate, key metrics/formulas, dimensions, filters, rules). No
+  narrative, no "The client wants/needs", no background, no rationale, no filler words.
+- `source_reference` is mandatory: the exact evidence filenames (requirement documents/images and transcripts)
+  that support the requirement, taken from the `(Source: ...)` tags in the baseline and joined by "; ",
+  with section/page if present. Never invent filenames. Do not repeat the source tag inside `description`.
 - Prefer one requirement per meaningful business outcome or report/workflow, usually around 3-8 \
 requirements for a normal discovery call. Do not create one row per transcript sentence or one row \
 per metric.

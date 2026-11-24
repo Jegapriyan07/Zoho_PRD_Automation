@@ -10,6 +10,7 @@ import sys
 
 from adapters.metadata_file_adapter import MetadataFileAdapter
 from adapters.zoho_metadata_exporter import ZohoMetadataExporter
+from adapters.zoho_recruit_metadata_exporter import ZohoRecruitMetadataExporter
 from pipeline import (
     stage1_intake,
     stage2_parsing,
@@ -42,6 +43,11 @@ from pipeline.models import (
     SQLDiscovery,
     HumanValidationResult,
     TranscriptAnalysis,
+)
+from pipeline.transcript_clarification import (
+    apply_clarification_answers,
+    clarification_gate_message,
+    write_clarification_template,
 )
 
 STAGE_LABELS = {
@@ -109,17 +115,39 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     if from_stage <= 2 <= to_stage:
         _announce(2)
-        context = stage2_parsing.run(store)
+        context = stage2_parsing.run(store, claude)
 
     if from_stage <= 3 <= to_stage:
         _announce(3)
         transcript_analysis = stage3_transcript_analysis.run(store, claude(), context)
-        if args.unattended:
+        if args.unattended or args.auto_clarify:
             transcript_analysis = answer_transcript_questions(store, transcript_analysis)
+        else:
+            clarification_path = write_clarification_template(store, transcript_analysis)
         print(f"Transcript analysis report created: {store.artifact_path('transcript_analysis_report.md')}")
-        if to_stage == 3 and not args.unattended:
-            print("Review and clarify the questions, then resume with --from-stage 4 --case-id <case_id>.")
+        if to_stage == 3 and not (args.unattended or args.auto_clarify):
+            print(
+                f"Answer the questions in {clarification_path}, then resume with "
+                f"--from-stage 4 --case-id {case_id}."
+            )
             return
+
+    if to_stage >= 4:
+        if transcript_analysis is None:
+            sys.exit(
+                "Stage 3 transcript analysis is required before stages 4-12. "
+                "Run stage 3 first or select --unattended to use explicit assumptions."
+            )
+        if args.unattended or args.auto_clarify:
+            transcript_analysis = answer_transcript_questions(store, transcript_analysis)
+        else:
+            clarification_path = write_clarification_template(store, transcript_analysis)
+            transcript_analysis = apply_clarification_answers(store, transcript_analysis)
+            gate_message = clarification_gate_message(transcript_analysis)
+            if gate_message:
+                print(f"[Clarification gate] {gate_message}")
+                print(f"Update {clarification_path} and rerun with --from-stage 4 --case-id {case_id}.")
+                return
 
     if from_stage <= 4 <= to_stage:
         _announce(4)
@@ -133,7 +161,12 @@ def run_pipeline(args: argparse.Namespace) -> None:
         _announce(6)
         from pipeline.rag_mcp_client import RAGMCPClient
 
-        rag = OfflineRulebookClient() if args.offline_rag else RAGMCPClient(args.rag_url)
+        rag_kb = (
+            args.rag_kb
+            or os.getenv("RAG_KNOWLEDGE_BASE")
+            or ("recruit" if args.metadata_source == "recruit" else "finance")
+        )
+        rag = OfflineRulebookClient() if args.offline_rag else RAGMCPClient(args.rag_url, kb=rag_kb)
         data_needs = stage5_data_needs.run(store, claude(), decomposition, context, rag)
         retrieval = store.load_stage(65, RulebookRetrievalResult)
 
@@ -164,6 +197,17 @@ def run_pipeline(args: argparse.Namespace) -> None:
             exporter.export(str(metadata_path))
             schema = MetadataFileAdapter(str(metadata_path)).as_schema()
             print(f"Zoho REST metadata exported to: {metadata_path}")
+        elif args.metadata_source == "recruit":
+            if not args.recruit_modules:
+                sys.exit(
+                    "--recruit-modules is required for Zoho Recruit metadata discovery. "
+                    "Provide one or more module API names, such as Candidates or Contacts."
+                )
+            metadata_path = store.artifact_path("zoho_recruit_metadata.json")
+            exporter = ZohoRecruitMetadataExporter(modules=args.recruit_modules)
+            exporter.export(str(metadata_path))
+            schema = MetadataFileAdapter(str(metadata_path)).as_schema()
+            print(f"Zoho Recruit metadata exported to: {metadata_path}")
         elif args.unattended and args.mock and not args.workspace:
             print("[Metadata unavailable] No customer workspace metadata was supplied; mappings remain UNVERIFIED.")
             schema = {}
@@ -179,7 +223,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if from_stage <= 8 <= to_stage:
         _announce(8)
         workbook_path = stage7_validation_workbook.run(
-            store, decomposition, data_needs, sql_discovery, retrieval, transcript_analysis
+            store, decomposition, data_needs, sql_discovery, baseline, transcript_analysis
         )
         if args.unattended:
             fill_validation_workbook(store)
@@ -244,8 +288,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_p = sub.add_parser("run", help="Run the pipeline end-to-end or from a specific stage")
     run_p.add_argument("--transcripts", nargs="+", metavar="T", help="Paths to one or more transcript files")
-    run_p.add_argument("--requirement", help="Path to an optional requirement document")
+    run_p.add_argument(
+        "--requirement", nargs="+", metavar="R",
+        help="Paths to optional requirement documents or images (.txt, .md, .png, .jpg, .jpeg, .webp, .gif)",
+    )
     run_p.add_argument("--rag-url", help="RAG MCP SSE endpoint (defaults to RAG_MCP_URL)")
+    run_p.add_argument(
+        "--rag-kb",
+        help=(
+            "Target RAG knowledge base name, e.g. 'finance' or 'recruit' (defaults to "
+            "RAG_KNOWLEDGE_BASE, else 'recruit' when --metadata-source recruit, else 'finance'). "
+            "Only that knowledge base's isolated content is searched."
+        ),
+    )
     run_p.add_argument("--workspace", help="Exact Zoho Analytics workspace name")
     run_p.add_argument(
         "--metadata",
@@ -253,13 +308,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--metadata-source",
-        choices=("auto", "rest", "mcp"),
+        choices=("auto", "rest", "mcp", "recruit"),
         default="auto",
-        help="Metadata source: auto uses REST when Zoho OAuth env vars are configured; otherwise MCP",
+        help="Metadata source: auto uses Analytics REST when configured; otherwise MCP. Use recruit for Recruit REST.",
     )
     run_p.add_argument(
         "--workspace-id",
         help="Client Zoho Analytics workspace ID for this case (required for REST metadata)",
+    )
+    run_p.add_argument(
+        "--recruit-modules",
+        nargs="+",
+        metavar="MODULE",
+        help="Zoho Recruit module API names to export when --metadata-source recruit is selected",
     )
     run_p.add_argument("--analytics-mcp-url", help="Zoho Analytics MCP SSE endpoint (defaults to ANALYTICS_MCP_URL)")
     run_p.add_argument("--case-id", help="Existing case id (required when --from-stage > 1)")
@@ -273,6 +334,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--unattended", action="store_true",
         help="Complete clarification, validation, and acceptance automatically using explicit assumptions",
+    )
+    run_p.add_argument(
+        "--auto-clarify", action="store_true",
+        help="Auto-answer only the upfront transcript clarification questions; workbook and later steps stay human-driven",
     )
     run_p.add_argument(
         "--skip-metadata", action="store_true",
@@ -303,6 +368,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zoho Accounts server URI; defaults to ACCOUNTS_SERVER_URL or the .com data center",
     )
 
+    recruit_export_p = sub.add_parser(
+        "export-recruit-metadata",
+        help="Export read-only Zoho Recruit module and field metadata",
+    )
+    recruit_export_p.add_argument(
+        "--modules",
+        nargs="+",
+        required=True,
+        metavar="MODULE",
+        help="Zoho Recruit module API names, such as Candidates or Contacts",
+    )
+    recruit_export_p.add_argument("--output", required=True, help="Output JSON path")
+    recruit_export_p.add_argument("--recruit-url", help="Zoho Recruit API base URL")
+    recruit_export_p.add_argument("--accounts-url", help="Zoho Accounts server URI")
+    recruit_export_p.add_argument(
+        "--fields-only",
+        action="store_true",
+        help="Export field metadata only; explicitly omit module-level metadata",
+    )
+
     status_p = sub.add_parser("knowledge-status", help="Check the external RAG knowledge base")
     status_p.add_argument("--rag-url", help="RAG MCP SSE endpoint (defaults to RAG_MCP_URL)")
 
@@ -324,6 +409,16 @@ def main() -> None:
             accounts_url=args.accounts_url,
         ).export(args.output)
         print(f"Metadata exported to: {output}")
+    elif args.command == "export-recruit-metadata":
+        output = ZohoRecruitMetadataExporter(
+            modules=args.modules,
+            recruit_url=args.recruit_url,
+            accounts_url=args.accounts_url,
+            fields_only=args.fields_only,
+        ).export(args.output)
+        if args.fields_only:
+            print("Fields-only export: module-level metadata was not collected.")
+        print(f"Zoho Recruit metadata exported to: {output}")
     elif args.command == "knowledge-status":
         from pipeline.rag_mcp_client import RAGMCPClient
 

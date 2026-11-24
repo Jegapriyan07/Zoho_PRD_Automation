@@ -1,4 +1,4 @@
-"""Strict client for the external Zoho Finance RAG MCP service."""
+"""Strict client for an explicit, named knowledge base on the external Zoho RAG MCP service."""
 
 from __future__ import annotations
 
@@ -36,8 +36,32 @@ def _tool_text(value: Any) -> str:
 
 
 class RAGMCPClient:
-    def __init__(self, url: str | None = None):
+    """Client for one explicit knowledge base on the external Zoho RAG MCP service.
+
+    Every call targets exactly one `kb` (knowledge base), e.g. "finance" or
+    "recruit" — matching the isolated collections the RAG service registers in
+    its knowledge_bases.json. This client never searches "all content"; an
+    unknown or unconfigured kb surfaces as a hard retrieval error instead of
+    silently falling back to another knowledge base.
+    """
+
+    # Extra retrieval-query context per knowledge base. Unlisted/future knowledge
+    # bases still work via the generic fallback below.
+    _CONTEXT_HINTS: dict[str, str] = {
+        "finance": (
+            "Zoho Finance profit and loss report metric formulas revenue expenses "
+            "gross profit EBITDA cash flow occupancy current assets and required fields"
+        ),
+        "recruit": (
+            "Zoho Recruit Advanced Analytics report metric formulas candidate hiring rate, "
+            "job opening filling rate, interview scheduling, candidate source conversion, "
+            "and required fields"
+        ),
+    }
+
+    def __init__(self, url: str | None = None, kb: str | None = None):
         self.url = url or os.getenv("RAG_MCP_URL", "http://localhost:8100/sse")
+        self.kb = (kb or os.getenv("RAG_KNOWLEDGE_BASE", "finance")).strip().lower()
         self.top_k = int(os.getenv("RAG_TOP_K", "5"))
         self.min_score = float(os.getenv("RAG_MIN_SCORE", "0.35"))
         self.max_context_chars = int(os.getenv("RAG_MAX_CONTEXT_CHARS", "12000"))
@@ -59,19 +83,18 @@ class RAGMCPClient:
 
     async def status(self) -> dict:
         tools = await self._tools()
-        raw = await tools["list_categories"].ainvoke({})
+        raw = await tools["list_knowledge_bases"].ainvoke({})
         return json.loads(_tool_text(raw))
 
-    @staticmethod
-    def _queries(requirement: AtomicRequirement) -> list[str]:
+    def _queries(self, requirement: AtomicRequirement) -> list[str]:
         description = requirement.description.strip()
-        finance_context = (
-            "Zoho Finance profit and loss report metric formulas revenue expenses "
-            "gross profit EBITDA cash flow occupancy current assets and required fields"
+        context_hint = self._CONTEXT_HINTS.get(
+            self.kb,
+            f"Zoho {self.kb.title()} report metric formulas, required fields, and setup guidance",
         )
         return [
             description,
-            f"{finance_context} for {description}",
+            f"{context_hint} for {description}",
             f"report setup table columns filters and limitations for {description}",
         ]
 
@@ -85,10 +108,23 @@ class RAGMCPClient:
         deduped: dict[str, RulebookChunk] = {}
         try:
             for query in queries:
-                arguments = {"query": query, "k": self.top_k, "category": "", "min_score": self.min_score}
+                arguments = {
+                    "knowledge_base": self.kb,
+                    "query": query,
+                    "k": self.top_k,
+                    "category": "",
+                    "min_score": self.min_score,
+                }
                 raw = await tools["search_knowledge_base"].ainvoke(arguments)
                 payload = json.loads(_tool_text(raw))
                 audit.append({"request": arguments, "response": payload})
+                if payload.get("error"):
+                    return RequirementRetrieval(
+                        requirement_id=requirement.requirement_id,
+                        queries=queries,
+                        grounding_status="ERROR",
+                        message=f"RAG knowledge_base={self.kb!r}: {payload['error']}",
+                    ), audit
                 for item in payload.get("results", []):
                     identity = "|".join([
                         str(item.get("category", "")), str(item.get("title", "")),
@@ -128,7 +164,7 @@ class RAGMCPClient:
             queries=queries,
             chunks=selected,
             grounding_status="GROUNDED" if selected else "NO_MATCH",
-            message=None if selected else "No sufficiently relevant Zoho Finance rulebook content was found.",
+            message=None if selected else f"No sufficiently relevant {self.kb!r} knowledge base content was found.",
         ), audit
 
     async def retrieve(self, requirement: AtomicRequirement) -> tuple[RequirementRetrieval, list[dict]]:

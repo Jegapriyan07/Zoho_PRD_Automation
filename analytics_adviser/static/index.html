@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analytics Adviser</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#2f6bff"/><rect x="7" y="17" width="4" height="8" rx="1" fill="#fff"/><rect x="14" y="11" width="4" height="14" rx="1" fill="#fff"/><rect x="21" y="6" width="4" height="19" rx="1" fill="#fff"/></svg>
+    <div><h1>Analytics Adviser</h1><span>Transcripts in, validated PRD out</span></div>
+  </div>
+  <div class="topbar-right">
+    <span id="caseBadge" class="badge hidden"></span>
+    <button id="newRunBtn" class="btn ghost hidden">New analysis</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <h2>Progress</h2>
+    <ol id="stepper" class="stepper"></ol>
+  </aside>
+
+  <section class="content">
+    <div id="errorBanner" class="banner error hidden"></div>
+
+    <!-- Setup -->
+    <div id="view-setup" class="view">
+      <div class="card">
+        <h2>1. Add your evidence</h2>
+        <div class="grid2">
+          <div class="drop" id="drop-transcripts" data-accept=".txt,.md,.docx,.vtt,.srt,.csv,.log">
+            <input type="file" multiple hidden accept=".txt,.md,.docx,.vtt,.srt,.csv,.log">
+            <strong>Meeting transcripts <em>required</em></strong>
+            <p>Drop files or click to select from your device</p>
+            <small>.txt .md .docx .vtt .srt</small>
+            <ul class="files"></ul>
+          </div>
+          <div class="drop" id="drop-requirements" data-accept=".txt,.md,.docx,.png,.jpg,.jpeg,.webp,.gif">
+            <input type="file" multiple hidden accept=".txt,.md,.docx,.png,.jpg,.jpeg,.webp,.gif">
+            <strong>Requirement documents <em>optional</em></strong>
+            <p>Customer requirement document or screenshots</p>
+            <small>.txt .md .docx .png .jpg</small>
+            <ul class="files"></ul>
+          </div>
+          <div class="drop" id="drop-metadata" data-accept=".json" data-single="1">
+            <input type="file" hidden accept=".json">
+            <strong>Zoho metadata export <em>optional</em></strong>
+            <p>Exported workspace metadata JSON</p>
+            <small>Without it, mappings are marked unverified</small>
+            <ul class="files"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>2. Choose how to run</h2>
+        <div class="grid2">
+          <fieldset>
+            <legend>Mode</legend>
+            <label class="choice"><input type="radio" name="mode" value="guided" checked>
+              <span><b>Guided</b> – pauses so you answer clarifications, validate requirements and fill gaps here in the browser.</span></label>
+            <label class="choice"><input type="radio" name="mode" value="auto">
+              <span><b>Automatic</b> – runs every stage with recorded assumptions, no pauses.</span></label>
+          </fieldset>
+          <fieldset>
+            <legend>Reasoning engine</legend>
+            <label class="choice"><input type="radio" name="engine" value="mock" checked>
+              <span><b>Local offline</b> – built-in heuristics; no API key or network.</span></label>
+            <label class="choice"><input type="radio" name="engine" value="ollama">
+              <span><b>Local Ollama</b> – your own model on this machine.</span></label>
+            <input id="ollamaModel" class="input hidden" placeholder="Ollama model name, e.g. llama3.1">
+            <label class="choice"><input type="radio" name="engine" value="configured">
+              <span><b>Configured in .env</b> – uses LLM settings already on this machine.</span></label>
+            <input id="headroom" type="number" min="1024" step="1024" class="input hidden" placeholder="Reasoning token headroom (default 8192; raise for slow reasoning models)">
+          </fieldset>
+        </div>
+        <div class="rag-row">
+          <label class="check"><input type="checkbox" id="useRag"> Ground requirements in the Zoho knowledge base (needs the RAG service running)</label>
+          <select id="ragKb" class="input small" disabled><option value="finance">finance</option><option value="recruit">recruit</option></select>
+        </div>
+      </div>
+      <button id="startBtn" class="btn primary large" disabled>Start analysis</button>
+    </div>
+
+    <!-- Running -->
+    <div id="view-run" class="view hidden">
+      <div class="card now">
+        <div class="spinner" id="spinner"></div>
+        <div>
+          <h2 id="nowTitle">Starting…</h2>
+          <p id="nowSub" class="muted"></p>
+        </div>
+        <div class="now-actions">
+          <button id="cancelBtn" class="btn ghost">Stop</button>
+          <button id="retryBtn" class="btn primary hidden">Retry</button>
+        </div>
+      </div>
+      <div id="insights"></div>
+    </div>
+
+    <!-- Clarify -->
+    <div id="view-clarify" class="view hidden">
+      <div class="card">
+        <h2>Clarification questions</h2>
+        <p class="muted">The analysis found ambiguities in the transcripts. Pick an option or type an answer for each question.</p>
+        <div id="clarifyList"></div>
+        <div class="actions">
+          <button class="btn ghost" id="clarifyAuto">Assume the rest &amp; continue</button>
+          <button class="btn primary" id="clarifySubmit">Save answers &amp; continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Validate -->
+    <div id="view-validate" class="view hidden">
+      <div class="card">
+        <h2>Validate requirements</h2>
+        <p class="muted">Set a status for each requirement based on what you can confirm in the customer's Zoho workspace. The tool never queries customer data itself.</p>
+        <div class="actions left">
+          <a id="wbDownload" class="btn ghost" href="#">Download workbook (.xlsx)</a>
+          <label class="btn ghost">Upload completed workbook<input type="file" id="wbUpload" accept=".xlsx" hidden></label>
+        </div>
+        <div id="validateList"></div>
+        <div class="actions">
+          <button class="btn ghost" id="validateAuto">Assume from metadata &amp; continue</button>
+          <button class="btn primary" id="validateSubmit">Save validation &amp; continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gaps -->
+    <div id="view-gaps" class="view hidden">
+      <div class="card">
+        <h2>Gap questions</h2>
+        <p class="muted">These follow-up questions must be answered before the PRD is written.</p>
+        <div id="gapList"></div>
+        <div class="actions">
+          <button class="btn ghost" id="gapsAuto">Assume the rest &amp; continue</button>
+          <button class="btn primary" id="gapsSubmit">Save answers &amp; generate PRD</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="view-done" class="view hidden">
+      <div class="card">
+        <h2>Your outputs</h2>
+        <div id="downloads" class="downloads"></div>
+      </div>
+      <div class="card">
+        <h2>PRD preview</h2>
+        <article id="prdPreview" class="prd"></article>
+      </div>
+      <div class="card">
+        <h2>Acceptance</h2>
+        <textarea id="feedbackNotes" class="input" rows="2" placeholder="Feedback notes (optional when accepting)"></textarea>
+        <div class="actions left">
+          <button class="btn primary" id="acceptBtn">Accept PRD</button>
+          <button class="btn ghost" id="rejectBtn">Request changes</button>
+          <span id="feedbackMsg" class="muted"></span>
+        </div>
+      </div>
+    </div>
+
+    <details id="consoleBox" class="console-box" open>
+      <summary>Live process log <span id="logCount" class="badge"></span></summary>
+      <pre id="console"></pre>
+    </details>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

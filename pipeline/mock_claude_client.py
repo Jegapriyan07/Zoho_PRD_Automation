@@ -233,21 +233,22 @@ def _decomposition_handler(system_prompt: str, user_prompt: str) -> dict:
     section = _extract_section(user_prompt, "BASELINE REQUIREMENTS:")
     lines = [l.strip()[2:].strip() for l in section.splitlines() if l.strip().startswith("- ")]
 
-    reqs = [
-        {
+    reqs = []
+    for i, line in enumerate(lines, start=1):
+        tag = re.search(r"\s*\(Source:\s*([^)]+)\)\s*$", line)
+        desc = line[:tag.start()].strip() if tag else line
+        reqs.append({
             "requirement_id": f"REQ-{i:03d}",
             "category": _guess_category(desc),
             "description": desc,
-            "source_reference": None,
+            "source_reference": tag.group(1).strip() if tag else None,
             "evidence": ["Baseline requirement text"],
             "source_systems": [],
             "report_surfaces": [],
             "acceptance_criteria": [f"{desc} is demonstrable in the delivered scope."],
             "validation_method": "Review against source evidence and validation workbook.",
             "dependencies": [],
-        }
-        for i, desc in enumerate(lines, start=1)
-    ]
+        })
     if not reqs:
         reqs = [{
             "requirement_id": "REQ-001",
@@ -571,6 +572,12 @@ _HANDLERS = {
 class MockClaudeClient:
     def __init__(self):
         self.model = "local-mock"
+
+    def extract_image_text(self, system_prompt: str, user_prompt: str, image_path, max_tokens: int = 4096) -> str:
+        raise RuntimeError(
+            "Requirement images need a vision-capable model; mock mode cannot read images. "
+            "Run without --mock or supply text requirement files."
+        )
 
     def call(self, system_prompt: str, user_prompt: str, max_tokens: int = 4096) -> str:
         schema = _extract_trailing_schema(system_prompt)

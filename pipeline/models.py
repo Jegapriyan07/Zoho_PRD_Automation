@@ -5,7 +5,7 @@ so prompts and parsing stay in sync with a single source of truth.
 """
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TranscriptDoc(BaseModel):
@@ -16,7 +16,18 @@ class TranscriptDoc(BaseModel):
 class CaseContext(BaseModel):
     case_id: str
     transcripts: list[TranscriptDoc]
-    requirement_doc: Optional[TranscriptDoc] = None
+    requirement_docs: list[TranscriptDoc] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_single_requirement_doc(cls, data):
+        # Older saved cases stored one optional `requirement_doc`.
+        if isinstance(data, dict) and "requirement_doc" in data:
+            data = dict(data)
+            legacy = data.pop("requirement_doc")
+            if legacy and not data.get("requirement_docs"):
+                data["requirement_docs"] = [legacy]
+        return data
 
 
 class TranscriptClarificationQuestion(BaseModel):
@@ -106,6 +117,17 @@ class TranscriptAnalysis(BaseModel):
     chunk_analyses: list[TranscriptChunkAnalysis] = Field(default_factory=list)
 
 
+class TranscriptClarificationAnswer(BaseModel):
+    question_id: str
+    question: str
+    answer: str = ""
+
+
+class TranscriptClarificationResponse(BaseModel):
+    case_id: str
+    answers: list[TranscriptClarificationAnswer] = Field(default_factory=list)
+
+
 class ConflictNote(BaseModel):
     topic: str
     description: str
@@ -151,6 +173,13 @@ class AtomicRequirement(BaseModel):
     ] = "unresolved"
     missing_information: list[str] = Field(default_factory=list)
     clarification_questions: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _default_title(self):
+        if not (self.title or "").strip():
+            words = self.description.split()
+            self.title = " ".join(words[:8]).rstrip(",.;:")
+        return self
 
 
 class RequirementDecomposition(BaseModel):
